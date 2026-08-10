@@ -1,8 +1,12 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { DEPOSITIONS, type Deposition } from "../data";
 import { Reveal } from "../hooks";
 import { SectionHead, Stamp } from "./Chrome";
 import { ReelIcon } from "./icons";
+import { getAllPublicDepositions } from "../lib/contributions";
+import { saveLocalContribution } from "../lib/storage";
+import { validateContribution } from "../lib/validation";
+import { ZodError } from "zod";
 
 function DepositionCard({ d, i, isNew = false }: { d: Deposition; i: number; isNew?: boolean }) {
   const [open, setOpen] = useState(isNew);
@@ -68,21 +72,41 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
   const [msg, setMsg] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [video, setVideo] = useState<File | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [shakeKey, setShakeKey] = useState(0);
   const [success, setSuccess] = useState(false);
 
+  const handlePhoto = (f: File | null) => {
+    setPhoto(f);
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+    if (f) {
+      setPhotoUrl(URL.createObjectURL(f));
+      const reader = new FileReader();
+      reader.onload = () => setPhotoDataUrl(reader.result as string);
+      reader.readAsDataURL(f);
+    } else {
+      setPhotoUrl(null);
+      setPhotoDataUrl(null);
+    }
+  };
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (!msg.trim() && !photo && !video) {
-      setError(true);
-      setSuccess(false);
-      setShakeKey((k) => k + 1);
-      return;
+    try {
+      validateContribution({ name, message: msg, photo, video });
+    } catch (err) {
+      if (err instanceof ZodError) {
+        setError(err.issues[0]?.message ?? "Pièce invalide");
+        setSuccess(false);
+        setShakeKey((k) => k + 1);
+        return;
+      }
+      throw err;
     }
     const firstLine = msg.trim().split(/\n/)[0] ?? "";
-    onAdd({
+    const dep: Deposition = {
       name: name.trim() || "Témoin anonyme",
       link: "Témoin ajouté au dossier — en direct",
       date: "versée à l'instant",
@@ -97,8 +121,19 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
       full:
         msg.trim() ||
         "Le témoin a préféré les images aux mots. Le greffe approuve : certaines preuves parlent d'elles-mêmes.",
-      photo: photoUrl ?? undefined,
+      photo: photoDataUrl ?? photoUrl ?? undefined,
       videoLabel: video ? `Vidéo jointe — ${(video.size / 1048576).toFixed(1)} Mo` : undefined,
+    };
+    onAdd(dep);
+    saveLocalContribution({
+      id: `local-${Date.now()}`,
+      contributorName: dep.name,
+      contributorLink: dep.link,
+      message: msg.trim() || undefined,
+      photoUrl: dep.photo,
+      videoLabel: dep.videoLabel,
+      createdAt: new Date().toISOString(),
+      status: "pending",
     });
     setName("");
     setMsg("");
@@ -106,7 +141,8 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
     setVideo(null);
     if (photoUrl) URL.revokeObjectURL(photoUrl);
     setPhotoUrl(null);
-    setError(false);
+    setPhotoDataUrl(null);
+    setError(null);
     setSuccess(true);
     window.setTimeout(() => setSuccess(false), 7000);
   };
@@ -158,13 +194,11 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
                 type="file"
                 accept="image/*"
                 className="sr-only"
-                onChange={(e) => {
-                  const f = e.target.files?.[0] ?? null;
-                  setPhoto(f);
-                  if (photoUrl) URL.revokeObjectURL(photoUrl);
-                  setPhotoUrl(f ? URL.createObjectURL(f) : null);
-                }}
+                onChange={(e) => handlePhoto(e.target.files?.[0] ?? null)}
               />
+              {photoUrl && (
+                <img src={photoUrl} alt="Aperçu" className="mt-3 h-20 w-full border border-bone/20 object-cover" />
+              )}
             </div>
             <div>
               <label htmlFor="dep-video" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.24em] text-fog">
@@ -183,6 +217,12 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
                 className="sr-only"
                 onChange={(e) => setVideo(e.target.files?.[0] ?? null)}
               />
+              {video && (
+                <span className="mt-3 inline-flex items-center gap-1.5 border border-bone/20 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-bone/70">
+                  <ReelIcon className="h-3.5 w-3.5 text-blood" />
+                  {(video.size / 1048576).toFixed(1)} Mo
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -198,7 +238,9 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
             onChange={(e) => setMsg(e.target.value)}
             placeholder="Racontez un souvenir, une preuve, un aveu. Le dossier garde tout."
             className={inputCls + " resize-none"}
+            maxLength={2000}
           />
+          <span className="mt-1 block text-right font-mono text-[9px] uppercase tracking-[0.14em] text-fog">{msg.length} / 2000</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-5">
@@ -209,8 +251,7 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
             Verser la pièce au dossier
           </button>
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fog">
-            Règle du greffe : message <span className="text-ember">ou</span> photo{" "}
-            <span className="text-ember">ou</span> vidéo — jamais rien.
+            Règle du greffe : message <span className="text-ember">ou</span> photo <span className="text-ember">ou</span> vidéo — jamais rien.
           </p>
         </div>
 
@@ -220,12 +261,12 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
             role="alert"
             className="deny-shake border-l-2 border-blood pl-4 font-mono text-[11px] uppercase tracking-[0.14em] text-ember"
           >
-            Refusé par le greffe — une pièce vide ne peut être versée au dossier.
+            {error}
           </p>
         )}
         {success && (
           <p role="status" className="border-l-2 border-brass pl-4 font-mono text-[11px] uppercase tracking-[0.14em] text-brass">
-            Pièce versée au dossier — merci, témoin. Votre déposition apparaît ci-dessus.
+            Pièce versée au dossier — merci, témoin. Votre déposition apparaît ci-dessus et sera visible pour Jenny.
           </p>
         )}
       </form>
@@ -235,6 +276,17 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
 
 export default function Depositions() {
   const [extra, setExtra] = useState<Deposition[]>([]);
+
+  // Load persisted locals on mount (Phase C.1)
+  useEffect(() => {
+    const persisted = getAllPublicDepositions();
+    // persisted already includes seed; we need only locals (those not in seed)
+    const seedNames = new Set(DEPOSITIONS.map((d) => d.name + d.quote));
+    const locals = persisted.filter((d) => !seedNames.has(d.name + d.quote));
+    if (locals.length > 0) setExtra(locals);
+  }, []);
+
+  const handleAdd = (d: Deposition) => setExtra((prev) => [d, ...prev]);
   const all = [...extra, ...DEPOSITIONS];
 
   return (
@@ -256,11 +308,15 @@ export default function Depositions() {
 
       <Reveal className="mb-14 -mt-6 max-w-3xl md:-mt-8">
         <p className="font-mono text-[12px] leading-relaxed text-ink/70">
-          Les proches du sujet ont été entendus, un par un, avec du café et beaucoup de
-          rires. Chaque témoin pouvait verser un message, une photo, une vidéo — ou les
-          trois. Cliquez pour lire chaque déposition en entier. Le parjure est puni d'un
-          câlin obligatoire.
+          Les proches du sujet ont été entendus, un par un, avec du café et beaucoup de rires.
+          Chaque témoin pouvait verser un message, une photo, une vidéo — ou les trois. Cliquez
+          pour lire chaque déposition en entier. Le parjure est puni d'un câlin obligatoire.
         </p>
+        {extra.length > 0 && (
+          <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-blood">
+            {extra.length} pièce{extra.length > 1 ? "s" : ""} locale{extra.length > 1 ? "s" : ""} chargée{extra.length > 1 ? "s" : ""} — visible dans ce navigateur (mode démo).
+          </p>
+        )}
       </Reveal>
 
       <div className="grid gap-6 md:grid-cols-2 md:gap-7">
@@ -270,7 +326,7 @@ export default function Depositions() {
       </div>
 
       <div className="mt-16 md:mt-20">
-        <ContributeForm onAdd={(d) => setExtra((prev) => [d, ...prev])} />
+        <ContributeForm onAdd={handleAdd} />
       </div>
     </section>
   );
