@@ -4,66 +4,27 @@ import { invokeJennyAccess } from "./auth";
 import type { ContributionRecord } from "../types";
 import { DEPOSITIONS, type Deposition } from "../data";
 
-/**
- * Contributions aggregation — Phase C/D
- * Merges:
- * - Seed depositions (data.ts)
- * - Local contributions (localStorage fallback)
- * - Supabase approved contributions (if configured & Jenny authenticated)
- *
- * For public view, only seed + local are shown (pending not yet approved).
- * For Jenny private view, Supabase approved will be merged via fetchApprovedDepositions().
- */
+const CONTRIBUTION_FUNCTION = "contribution-pipeline";
 
-export function getSeedDepositions(): Deposition[] {
-  return DEPOSITIONS;
-}
+export type ContributionMediaRequest = {
+  type: "photo" | "video";
+  mimeType: string;
+  sizeBytes: number;
+};
 
-export function getLocalDepositions(): Deposition[] {
-  const locals = loadLocalContributions();
-  return locals.map((r) => toDeposition(r));
-}
+export type ContributionUploadPlan = {
+  id: string;
+  type: "photo" | "video";
+  path: string;
+  token: string;
+};
 
-function toDeposition(r: ContributionRecord): Deposition {
-  const firstLine = r.message?.split("\n")[0] ?? "";
-  return {
-    name: r.contributorName,
-    link: r.contributorLink ?? "Témoin — versé via /participate",
-    date: new Date(r.createdAt).toLocaleDateString("fr-FR") + " — versée à l'instant",
-    quote:
-      firstLine.length > 0
-        ? firstLine.length > 92
-          ? firstLine.slice(0, 92) + "…"
-          : firstLine
-        : r.photoUrl
-          ? "Pièce photographique versée au dossier."
-          : r.videoLabel ?? "Enregistrement versé au dossier.",
-    full: r.message ?? "Le témoin a préféré les images aux mots. Le greffe approuve.",
-    photo: r.photoUrl,
-    videoLabel: r.videoLabel,
-  };
-}
-
-/** Create contributor + contribution (pending) — D.1 helper */
-export async function createPendingContribution(input: {
-  name: string;
-  message: string | null;
-}): Promise<{ contributorId: string; contributionId: string }> {
-  if (!isSupabaseConfigured || !supabase) throw new Error("Supabase non configuré");
-  const { data: contributor, error: cErr } = await supabase
-    .from("contributors")
-    .insert({ name: input.name, link: null })
-    .select()
-    .single();
-  if (cErr) throw new Error(cErr.message);
-  const { data: contribution, error: contribErr } = await supabase
-    .from("contributions")
-    .insert({ contributor_id: contributor.id, message: input.message, status: "pending" })
-    .select()
-    .single();
-  if (contribErr) throw new Error(contribErr.message);
-  return { contributorId: contributor.id, contributionId: contribution.id };
-}
+export type PendingContribution = {
+  contributionId: string;
+  submissionToken: string | null;
+  uploads: ContributionUploadPlan[];
+  complete: boolean;
+};
 
 type PrivateContribution = {
   id: string;
@@ -80,6 +41,77 @@ type PrivateContribution = {
 type PrivateContributionResponse = {
   contributions: PrivateContribution[];
 };
+
+export function getSeedDepositions(): Deposition[] {
+  return DEPOSITIONS;
+}
+
+export function getLocalDepositions(): Deposition[] {
+  if (isSupabaseConfigured) return [];
+  return loadLocalContributions().map((record) => toDeposition(record));
+}
+
+function toDeposition(record: ContributionRecord): Deposition {
+  const firstLine = record.message?.split("\n")[0] ?? "";
+  return {
+    name: record.contributorName,
+    link: record.contributorLink ?? "Témoin — versé via /participate",
+    date: new Date(record.createdAt).toLocaleDateString("fr-FR") + " — versée à l'instant",
+    quote:
+      firstLine.length > 0
+        ? firstLine.length > 92
+          ? firstLine.slice(0, 92) + "…"
+          : firstLine
+        : record.photoUrl
+          ? "Pièce photographique versée au dossier."
+          : record.videoLabel ?? "Enregistrement versé au dossier.",
+    full: record.message ?? "Le témoin a préféré les images aux mots. Le greffe approuve.",
+    photo: record.photoUrl,
+    videoLabel: record.videoLabel,
+  };
+}
+
+async function invokeContributionPipeline<T>(
+  action: "create" | "finalize",
+  payload: Record<string, unknown>
+): Promise<T> {
+  if (!isSupabaseConfigured || !supabase) throw new Error("Supabase non configuré");
+  const { data, error } = await supabase.functions.invoke(CONTRIBUTION_FUNCTION, {
+    body: { action, ...payload },
+  });
+  if (error) throw new Error("Le service de contribution est indisponible");
+  return data as T;
+}
+
+/** Creates an atomic pending submission and returns exact path-bound Storage upload tokens. */
+export async function createPendingContribution(input: {
+  name: string;
+  message: string | null;
+  media: ContributionMediaRequest[];
+}): Promise<PendingContribution> {
+  const response = await invokeContributionPipeline<PendingContribution>("create", input);
+  if (
+    typeof response.contributionId !== "string" ||
+    !Array.isArray(response.uploads) ||
+    typeof response.complete !== "boolean" ||
+    (response.uploads.length > 0 && typeof response.submissionToken !== "string")
+  ) {
+    throw new Error("Réponse de contribution invalide");
+  }
+  return response;
+}
+
+/** Finalizes a submission only after the Edge Function has verified every uploaded object. */
+export async function finalizePendingContribution(
+  contributionId: string,
+  submissionToken: string
+): Promise<void> {
+  const response = await invokeContributionPipeline<{ ok: boolean }>("finalize", {
+    contributionId,
+    submissionToken,
+  });
+  if (!response.ok) throw new Error("La contribution n'a pas pu être finalisée");
+}
 
 function privateContributionToDeposition(
   row: PrivateContribution,
@@ -137,7 +169,6 @@ async function fetchPrivateDepositions(
   return response.contributions.map((row) => privateContributionToDeposition(row, status));
 }
 
-/** Fetch approved contributions and short-lived media URLs through the protected Edge Function. */
 export async function fetchApprovedDepositions(): Promise<Deposition[]> {
   try {
     return await fetchPrivateDepositions("approved");
@@ -146,7 +177,6 @@ export async function fetchApprovedDepositions(): Promise<Deposition[]> {
   }
 }
 
-/** Fetch pending contributions through the same server-verified private session. */
 export async function fetchPendingDepositions(): Promise<Deposition[]> {
   try {
     return await fetchPrivateDepositions("pending");
@@ -155,12 +185,11 @@ export async function fetchPendingDepositions(): Promise<Deposition[]> {
   }
 }
 
-/** All depositions for public / landing (seed + local) */
+/** Public fallback content exists only when Supabase is not configured. */
 export function getAllPublicDepositions(): Deposition[] {
   return [...getLocalDepositions(), ...getSeedDepositions()];
 }
 
-/** Pending → approved through the server-verified private Edge Function. */
 export async function approveContribution(contributionId: string): Promise<void> {
   if (!isSupabaseConfigured) throw new Error("Supabase non configuré");
   const response = await invokeJennyAccess<{ ok: boolean }>("approve-contribution", {

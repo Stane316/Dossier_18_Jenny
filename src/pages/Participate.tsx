@@ -2,15 +2,19 @@
  * /participate — Contributor experience (Phase C)
  * C.3.2 — Upload states refinement: idle → validating → uploading → processing → success/error + retry
  */
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Reveal } from "../hooks";
 import { Stamp } from "../components/Chrome";
 import { PawIcon, ReelIcon } from "../components/icons";
 import { validateContribution, canSubmit, validatePhotoFile, validateVideoFile, getFieldErrors } from "../lib/validation";
 import { createPreviewUrl, revokePreviewUrl, saveLocalContribution, uploadContributionMedia } from "../lib/storage";
-import { isSupabaseConfigured, supabase } from "../lib/supabase";
-import { createPendingContribution } from "../lib/contributions";
+import { isSupabaseConfigured } from "../lib/supabase";
+import {
+  createPendingContribution,
+  finalizePendingContribution,
+  type PendingContribution,
+} from "../lib/contributions";
 import { ZodError } from "zod";
 import type { UploadState } from "../types";
 
@@ -27,6 +31,14 @@ export default function Participate() {
   const [shakeKey, setShakeKey] = useState(0);
   const [uploadState, setUploadState] = useState<UploadState>("idle");
   const [progress, setProgress] = useState(0);
+  const pendingSubmission = useRef<{
+    submission: PendingContribution;
+    uploadedAssetIds: Set<string>;
+  } | null>(null);
+
+  const resetPendingSubmission = () => {
+    pendingSubmission.current = null;
+  };
 
   const can = canSubmit({ message: msg, photo, video });
   const photoInstantError = validatePhotoFile(photo);
@@ -39,6 +51,7 @@ export default function Participate() {
   const clearFieldError = (field: string) => setFieldErrors((prev) => { const n = { ...prev }; delete n[field]; return n; });
 
   const handlePhotoChange = (f: File | null) => {
+    resetPendingSubmission();
     setPhoto(f);
     clearFieldError("photo");
     setGlobalError(null);
@@ -57,6 +70,7 @@ export default function Participate() {
   };
 
   const handleVideoChange = (f: File | null) => {
+    resetPendingSubmission();
     setVideo(f);
     clearFieldError("video");
     setGlobalError(null);
@@ -94,7 +108,7 @@ export default function Participate() {
       return;
     }
 
-    if (!isSupabaseConfigured || !supabase) {
+    if (!isSupabaseConfigured) {
       setUploadState("uploading");
       setProgress(35);
       await new Promise((r) => setTimeout(r, 350));
@@ -122,20 +136,45 @@ export default function Participate() {
     try {
       setUploadState("uploading");
       setProgress(10);
-      const { contributionId } = await createPendingContribution({ name: name.trim() || "Témoin anonyme", message: msg.trim() || null });
-      setProgress(30);
-      // D.1: real bucket upload with granular progress 50→90% via uploadContributionMedia
-      const media = await uploadContributionMedia(contributionId, photo, video, (pct) => setProgress(pct));
-      // Insert media_assets rows for each uploaded file (pending → approved flow)
-      for (const m of media) {
-        const { error: mErr } = await supabase.from("media_assets").insert({ id: m.id, contribution_id: contributionId, type: m.type, storage_path: m.path, mime_type: m.mime, size_bytes: m.size });
-        if (mErr) throw new Error(`Media: ${mErr.message}`);
+
+      if (!pendingSubmission.current) {
+        const media = [
+          ...(photo ? [{ type: "photo" as const, mimeType: photo.type, sizeBytes: photo.size }] : []),
+          ...(video ? [{ type: "video" as const, mimeType: video.type, sizeBytes: video.size }] : []),
+        ];
+        const submission = await createPendingContribution({
+          name: name.trim() || "Témoin anonyme",
+          message: msg.trim() || null,
+          media,
+        });
+        pendingSubmission.current = { submission, uploadedAssetIds: new Set() };
       }
+
+      const pending = pendingSubmission.current;
+      setProgress(30);
+      await uploadContributionMedia(
+        pending.submission.uploads,
+        photo,
+        video,
+        (percentage) => setProgress(30 + Math.floor(percentage * 0.55)),
+        (assetId) => pending.uploadedAssetIds.add(assetId),
+        pending.uploadedAssetIds
+      );
+
       setProgress(90);
       setUploadState("processing");
-      await new Promise((r) => setTimeout(r, 300));
+      if (!pending.submission.complete) {
+        if (!pending.submission.submissionToken) {
+          throw new Error("Jeton de finalisation manquant");
+        }
+        await finalizePendingContribution(
+          pending.submission.contributionId,
+          pending.submission.submissionToken
+        );
+      }
+
+      pendingSubmission.current = null;
       setProgress(100);
-      saveLocalContribution({ id: contributionId, contributorName: name.trim() || "Témoin anonyme", message: msg.trim() || undefined, photoUrl: photoDataUrl ?? photoUrl ?? undefined, videoLabel: video ? `Vidéo jointe — ${(video.size / 1048576).toFixed(1)} Mo` : undefined, createdAt: new Date().toISOString(), status: "pending" });
       setUploadState("success");
       await new Promise((r) => setTimeout(r, 250));
       nav("/thanks", { state: { supabase: true } });
@@ -205,7 +244,7 @@ export default function Participate() {
                   id="p-name"
                   type="text"
                   value={name}
-                  onChange={(e) => { setName(e.target.value); clearFieldError("name"); setGlobalError(null); }}
+                  onChange={(e) => { resetPendingSubmission(); setName(e.target.value); clearFieldError("name"); setGlobalError(null); }}
                   placeholder="Ex. : la voisine du chaton"
                   aria-invalid={Boolean(fieldErrors.name || nameLenError)}
                   aria-describedby={fieldErrors.name || nameLenError ? "p-name-error" : undefined}
@@ -263,7 +302,7 @@ export default function Participate() {
                 id="p-msg"
                 rows={5}
                 value={msg}
-                onChange={(e) => { setMsg(e.target.value); clearFieldError("message"); setGlobalError(null); }}
+                onChange={(e) => { resetPendingSubmission(); setMsg(e.target.value); clearFieldError("message"); setGlobalError(null); }}
                 placeholder="Racontez un souvenir, une preuve, un aveu. Le dossier garde tout."
                 aria-invalid={Boolean(fieldErrors.message)}
                 aria-describedby={fieldErrors.message ? "p-msg-error" : undefined}

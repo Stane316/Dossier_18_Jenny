@@ -8,10 +8,10 @@ import Screening from "../components/Screening";
 import Verdict from "../components/Verdict";
 import Archive from "../components/Archive";
 import IntroOrbit from "../components/IntroOrbit";
-import { verifyJennySession } from "../lib/auth";
+import { clearJennySession, verifyJennySession } from "../lib/auth";
 import { usePrivateRouteMeta } from "../hooks/usePrivateRouteMeta";
 
-/** /jenny/experience — private experience protected by a server-verified bounded session. */
+/** /jenny/experience — private experience protected by Jenny's Supabase Auth session. */
 export default function JennyExperience() {
   const nav = useNavigate();
   const [authorized, setAuthorized] = useState(false);
@@ -29,11 +29,16 @@ export default function JennyExperience() {
     };
   }, [nav]);
 
+  const signOut = async () => {
+    await clearJennySession();
+    nav("/jenny", { replace: true });
+  };
+
   if (!authorized) {
     return (
       <section className="flex min-h-[65vh] items-center justify-center px-5 py-24">
         <p role="status" className="font-mono text-[10px] uppercase tracking-[0.24em] text-fog">
-          Vérification du sceau privé…
+          Vérification Supabase Auth…
         </p>
       </section>
     );
@@ -41,9 +46,18 @@ export default function JennyExperience() {
 
   return (
     <>
+      <div className="fixed right-4 top-16 z-[80] md:right-8">
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="border border-ember/40 bg-ink/90 px-3 py-2 font-mono text-[9px] uppercase tracking-[0.16em] text-bone/75 backdrop-blur transition-colors hover:border-ember hover:text-ember"
+        >
+          Fermer la session
+        </button>
+      </div>
       <IntroOrbit />
-      <Cover />
-      <Report />
+      <Cover privateMode />
+      <Report privateMode />
       <Evidence />
       <Depositions privateMode />
       <Screening privateMode />

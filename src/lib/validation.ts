@@ -28,8 +28,8 @@ export const contributionSchema = z
         `Photo trop lourde (max ${LIMITS.photoMaxBytes / 1024 / 1024} Mo)`
       )
       .refine(
-        (f) => !f || (LIMITS.photoAccept as readonly string[]).includes(f.type) || f.type.startsWith("image/"),
-        "Format photo non supporté (JPEG, PNG, WebP)"
+        (f) => !f || (LIMITS.photoAccept as readonly string[]).includes(f.type),
+        "Format photo non supporté (JPEG, PNG, WebP, HEIC)"
       ),
     video: z
       .instanceof(File)
@@ -40,7 +40,7 @@ export const contributionSchema = z
         `Vidéo trop lourde (max ${LIMITS.videoMaxBytes / 1024 / 1024} Mo)`
       )
       .refine(
-        (f) => !f || (LIMITS.videoAccept as readonly string[]).includes(f.type) || f.type.startsWith("video/"),
+        (f) => !f || (LIMITS.videoAccept as readonly string[]).includes(f.type),
         "Format vidéo non supporté (MP4, MOV, WebM)"
       ),
   })
@@ -85,15 +85,15 @@ export function canSubmit(input: {
 export function validatePhotoFile(file: File | null): string | null {
   if (!file) return null;
   if (file.size > LIMITS.photoMaxBytes) return `Photo trop lourde — ${(file.size / 1048576).toFixed(1)} Mo (max ${LIMITS.photoMaxBytes / 1048576} Mo)`;
-  if (!(LIMITS.photoAccept as readonly string[]).includes(file.type) && !file.type.startsWith("image/"))
-    return `Format photo non supporté (${file.type || "inconnu"}) — JPEG, PNG, WebP attendus`;
+  if (!(LIMITS.photoAccept as readonly string[]).includes(file.type))
+    return `Format photo non supporté (${file.type || "inconnu"}) — JPEG, PNG, WebP ou HEIC attendus`;
   return null;
 }
 
 export function validateVideoFile(file: File | null): string | null {
   if (!file) return null;
   if (file.size > LIMITS.videoMaxBytes) return `Vidéo trop lourde — ${(file.size / 1048576).toFixed(1)} Mo (max ${LIMITS.videoMaxBytes / 1048576} Mo)`;
-  if (!(LIMITS.videoAccept as readonly string[]).includes(file.type) && !file.type.startsWith("video/"))
+  if (!(LIMITS.videoAccept as readonly string[]).includes(file.type))
     return `Format vidéo non supporté (${file.type || "inconnu"}) — MP4, MOV, WebM attendus`;
   return null;
 }

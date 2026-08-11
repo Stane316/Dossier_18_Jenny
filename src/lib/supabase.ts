@@ -2,28 +2,29 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config";
 
 /**
- * Supabase client — isolated foundation layer (Phase B)
- * - Returns null if env not configured → fallback to localStorage (demo mode)
- * - Never expose service_role key client-side
+ * Supabase client — public anon key in the browser, service_role only in Edge Functions.
+ * Jenny's Supabase Auth session is stored in sessionStorage and refreshed by supabase-js.
  */
-
-let _client: SupabaseClient | null = null;
+let client: SupabaseClient | null = null;
 
 export function getSupabase(): SupabaseClient | null {
   if (!config.supabase.isConfigured) return null;
-  if (_client) return _client;
-  _client = createClient(config.supabase.url!, config.supabase.anonKey!, {
-    auth: { persistSession: false, autoRefreshToken: false },
+  if (client) return client;
+
+  client = createClient(config.supabase.url!, config.supabase.anonKey!, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+      storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
+    },
   });
-  return _client;
+  return client;
 }
 
 export const supabase = getSupabase();
-
-/** Helper to check if backend is available */
 export const isSupabaseConfigured = config.supabase.isConfigured;
 
-/** Database types — kept minimal, mirrors Phase 7 §07 */
 export type DbContributor = {
   id: string;
   name: string;
@@ -36,6 +37,7 @@ export type DbContribution = {
   contributor_id: string;
   message?: string | null;
   status: "pending" | "approved" | "rejected" | "archived";
+  submission_complete: boolean;
   created_at: string;
 };
 
@@ -46,5 +48,6 @@ export type DbMediaAsset = {
   storage_path: string;
   mime_type: string;
   size_bytes: number;
+  upload_status: "pending" | "ready";
   created_at: string;
 };
