@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MEMORIES_FALLBACK } from "../data";
+import { MEMORIES, MEMORIES_FALLBACK } from "../data";
 import { useReducedMotion } from "../hooks";
 import { isSupabaseConfigured } from "../lib/supabase";
 import { fetchApprovedDepositions } from "../lib/contributions";
@@ -16,14 +16,16 @@ import { loadLocalContributions } from "../lib/storage";
 type OrbitItem = { id: string; src: string; alt: string };
 
 function useMemories(): OrbitItem[] {
-  const [items, setItems] = useState<OrbitItem[]>(() =>
-    MEMORIES_FALLBACK.map((src, i) => ({ id: `fallback-${i}`, src, alt: `Souvenir ${i + 1}` }))
-  );
+  // Start with real MEMORIES (public/memories WhatsApp) + fallback, so orbit shows true souvenirs immediately
+  const initial = (MEMORIES.length > 0 ? MEMORIES : MEMORIES_FALLBACK).map((src, i) => ({
+    id: `mem-${i}`,
+    src,
+    alt: `Souvenir ${i + 1}`,
+  }));
+  const [items, setItems] = useState<OrbitItem[]>(initial);
 
   useEffect(() => {
     let cancelled = false;
-    // 1. Try to load from public/images/memories via glob (if Vite has files)
-    // For now we keep fallback + add Supabase approved + local
     const load = async () => {
       const extra: OrbitItem[] = [];
 
@@ -39,19 +41,29 @@ function useMemories(): OrbitItem[] {
           const approved = await fetchApprovedDepositions();
           approved.forEach((d, i) => {
             if (d.photo) extra.push({ id: `approved-${i}-${d.id}`, src: d.photo, alt: d.name });
+            // Also handle video as poster for orbit (use first frame)
+            if (!d.photo && d.videoUrl) extra.push({ id: `approved-vid-${i}-${d.id}`, src: d.videoUrl, alt: d.name });
           });
         } catch {
           /* ignore */
         }
       }
 
-      // Also try to auto-discover files in public/images/memories via fetch of README? No, rely on fallback + extra
-      // User can add files to public/images/memories/ and they will be picked via MEMORIES_FALLBACK extension:
-      // To support auto-discovery, we expose a global `window.__JENNY_MEMORIES__` that can be set via a JSON manifest
-      // For now, merge extra in front, cap at 18
-      if (!cancelled && extra.length > 0) {
-        const merged = [...extra, ...MEMORIES_FALLBACK.map((src, i) => ({ id: `fallback-${i}`, src, alt: `Souvenir ${i + 1}` }))].slice(0, 18);
-        setItems(merged);
+      // Merge: extra (local + approved) in front, then real MEMORIES, then fallback, cap at 24 for orbit performance
+      if (!cancelled) {
+        const base = MEMORIES.length > 0 ? MEMORIES : MEMORIES_FALLBACK;
+        const baseItems = base.map((src, i) => ({ id: `base-${i}`, src, alt: `Souvenir ${i + 1}` }));
+        const merged = [...extra, ...baseItems].slice(0, 24);
+        // Deduplicate by src
+        const seen = new Set<string>();
+        const dedup = merged.filter((m) => {
+          if (seen.has(m.src)) return false;
+          seen.add(m.src);
+          return true;
+        });
+        if (dedup.length !== items.length || dedup.some((m, i) => m.src !== items[i]?.src)) {
+          setItems(dedup);
+        }
       }
     };
     load();
@@ -177,13 +189,25 @@ export default function IntroOrbit() {
                     aspectRatio: "4/3",
                   }}
                 >
-                  <img
-                    src={m.src}
-                    alt={m.alt}
-                    loading={i < 6 ? "eager" : "lazy"}
-                    className="h-full w-full object-cover saturate-[0.88] contrast-[1.04]"
-                    style={{ transform: `scale(${1 + effectiveProgress * 0.06})` }}
-                  />
+                  {m.src.endsWith(".mp4") ? (
+                    <video
+                      src={m.src}
+                      muted
+                      loop
+                      playsInline
+                      poster={MEMORIES_FALLBACK[i % MEMORIES_FALLBACK.length]}
+                      className="h-full w-full object-cover saturate-[0.88] contrast-[1.04]"
+                      style={{ transform: `scale(${1 + effectiveProgress * 0.06})` }}
+                    />
+                  ) : (
+                    <img
+                      src={m.src}
+                      alt={m.alt}
+                      loading={i < 6 ? "eager" : "lazy"}
+                      className="h-full w-full object-cover saturate-[0.88] contrast-[1.04]"
+                      style={{ transform: `scale(${1 + effectiveProgress * 0.06})` }}
+                    />
+                  )}
                 </div>
               </div>
             );

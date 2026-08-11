@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { COVER_META, WARNING_STRIP } from "../data";
 import { Stamp } from "./Chrome";
 import { ArrowDownIcon, PawIcon } from "./icons";
+import { isJennyAuthenticated } from "../lib/auth";
 
 /* Sceau circulaire rotatif — cire rouge du dossier */
 function WaxSeal() {
@@ -59,6 +60,7 @@ export default function Cover() {
         <div>
           <div className="rise-in mb-6 flex flex-wrap items-center gap-4" style={rise(180)}>
             <Stamp rot={-7} className="text-xs md:text-sm">Confidentiel</Stamp>
+            {isJennyAuthenticated() && <Stamp rot={5} className="bg-brass text-ink text-xs border-brass">Dossier privé — Jenny</Stamp>}
             <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-fog">
               Dossier ouvert le 13 août — ne pas classer
             </span>

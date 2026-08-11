@@ -1,25 +1,99 @@
 import { useEffect, useRef, useState } from "react";
 import { RECORDINGS } from "../data";
+import { MEMORIES } from "../data";
 import { Reveal, useReducedMotion } from "../hooks";
 import { SectionHead } from "./Chrome";
 import { PauseIcon, PlayIcon, ReelIcon } from "./icons";
+import { isSupabaseConfigured } from "../lib/supabase";
+import { fetchApprovedDepositions } from "../lib/contributions";
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
-export default function Screening() {
+type PrivateRecording = {
+  id: string;
+  label: string;
+  camera: string;
+  src: string;
+  poster: string;
+  duration: number;
+  transcript: { at: number; text: string }[];
+};
+
+export default function Screening({ privateMode = false }: { privateMode?: boolean }) {
   const [activeId, setActiveId] = useState(RECORDINGS[0].id);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
   const [t, setT] = useState(0);
+  const [privateRecordings, setPrivateRecordings] = useState<PrivateRecording[] | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
 
-  const rec = RECORDINGS.find((r) => r.id === activeId) ?? RECORDINGS[0];
+  // Load private videos: Supabase approved + WhatsApp video from MEMORIES
+  useEffect(() => {
+    if (!privateMode) return;
+    let cancelled = false;
+    const load = async () => {
+      const recs: PrivateRecording[] = [];
 
-  /* Lecture uniquement quand la salle est visible — économie & politesse */
+      // 1. WhatsApp video from public/memories (always available in private)
+      const waVideo = MEMORIES.find((m) => m.endsWith(".mp4"));
+      if (waVideo) {
+        recs.push({
+          id: "PR-01",
+          label: "« Souvenir — WhatsApp »",
+          camera: "CAM 04 — WHATSAPP",
+          src: waVideo,
+          poster: MEMORIES.find((m) => m.endsWith(".jpeg")) ?? RECORDINGS[0].poster,
+          duration: 14,
+          transcript: [
+            { at: 0, text: "00:00 — Archive WhatsApp — souvenir brut, non filtré." },
+            { at: 4, text: "00:04 — Rires, bruit de fond, la bande est là." },
+            { at: 9, text: "00:09 — Jenny au centre, comme toujours." },
+          ],
+        });
+      }
+
+      // 2. Supabase approved videos (signed URLs)
+      if (isSupabaseConfigured) {
+        try {
+          const approved = await fetchApprovedDepositions();
+          approved.forEach((d, idx) => {
+            if (d.videoUrl) {
+              recs.push({
+                id: `PR-${String(idx + 2).padStart(2, "0")}`,
+                label: `« ${d.name} »`,
+                camera: `CAM ${String(idx + 5).padStart(2, "0")} — TÉMOIN`,
+                src: d.videoUrl!,
+                poster: d.photo ?? RECORDINGS[0].poster,
+                duration: 12,
+                transcript: [
+                  { at: 0, text: `00:00 — Déposition de ${d.name} — lecture privée.` },
+                  { at: 3, text: `00:03 — ${d.quote.slice(0, 60)}` },
+                  { at: 8, text: "00:08 — Preuve versée au dossier privé." },
+                ],
+              });
+            }
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (!cancelled && recs.length > 0) {
+        setPrivateRecordings(recs);
+        setActiveId(recs[0].id);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [privateMode]);
+
+  const recordings = privateMode && privateRecordings && privateRecordings.length > 0 ? privateRecordings : RECORDINGS;
+  const rec = (recordings as any).find((r: any) => r.id === activeId) ?? recordings[0];
+
   useEffect(() => {
     const el = playerRef.current;
     if (!el || reduced) return;
@@ -52,7 +126,7 @@ export default function Screening() {
     };
   }, [activeId]);
 
-  const activeLine = rec.transcript.reduce((acc, l, i) => (t >= l.at ? i : acc), -1);
+  const activeLine = rec.transcript.reduce((acc: number, l: any, i: number) => (t >= l.at ? i : acc), -1);
   const frames = Math.floor((t % 1) * 25);
 
   const togglePlay = () => {
@@ -64,14 +138,11 @@ export default function Screening() {
 
   return (
     <section id="projection" data-chapter="V — Salle de projection" className="relative px-5 py-24 md:px-12 md:py-36 lg:px-20">
-      <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_40%_at_50%_18%,rgba(232,64,74,0.07),transparent_65%)]"
-        aria-hidden="true"
-      />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_40%_at_50%_18%,rgba(232,64,74,0.07),transparent_65%)]" aria-hidden="true" />
 
       <SectionHead
         num="V"
-        tag="Enregistrements saisis"
+        tag={privateMode ? "Enregistrements privés — Jenny" : "Enregistrements saisis"}
         title={
           <>
             Salle de <span className="italic text-ember">projection</span>
@@ -81,16 +152,20 @@ export default function Screening() {
 
       <Reveal className="-mt-6 mb-12 max-w-3xl md:-mt-8">
         <p className="font-mono text-[12px] leading-relaxed text-bone/70">
-          Les vidéos jointes au dossier ne sont pas de simples pièces : ce sont des scènes
-          reconstituées. Lumière éteinte, son monté. Le greffe transcrit en direct.
+          {privateMode
+            ? "Ici, Jenny découvre les vidéos privées — WhatsApp et dépositions vidéo approuvées (signed URLs 1h). Lumière éteinte, son monté."
+            : "Les vidéos jointes au dossier ne sont pas de simples pièces : ce sont des scènes reconstituées. Lumière éteinte, son monté. Le greffe transcrit en direct."}
         </p>
+        {privateMode && privateRecordings && privateRecordings.length > 0 && (
+          <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-brass">
+            {privateRecordings.length} vidéo{privateRecordings.length > 1 ? "s" : ""} privée{privateRecordings.length > 1 ? "s" : ""} — lecture via URL signée
+          </p>
+        )}
       </Reveal>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
-        {/* Projecteur */}
         <Reveal>
           <div ref={playerRef} className="border border-ash bg-deep shadow-[0_24px_60px_rgba(4,2,3,0.6)]">
-            {/* Ardoise de tournage */}
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-b border-ash px-4 py-3 font-mono text-[9px] uppercase tracking-[0.22em] text-fog md:text-[10px]">
               <ReelIcon className="h-4 w-4 text-ember" />
               <span className="text-bone">
@@ -117,7 +192,6 @@ export default function Screening() {
               />
             </div>
 
-            {/* Pupitre de contrôle */}
             <div className="flex items-center gap-4 border-t border-ash px-4 py-3">
               <button
                 type="button"
@@ -145,9 +219,8 @@ export default function Screening() {
             </div>
           </div>
 
-          {/* Pellicule — sélection des enregistrements */}
           <div className="mt-6 grid grid-cols-3 gap-3" role="tablist" aria-label="Choisir un enregistrement">
-            {RECORDINGS.map((r) => (
+            {recordings.map((r: any) => (
               <button
                 key={r.id}
                 type="button"
@@ -158,18 +231,14 @@ export default function Screening() {
                   setT(0);
                 }}
                 className={`group relative overflow-hidden border text-left transition-all duration-300 ${
-                  r.id === activeId
-                    ? "border-ember shadow-[0_0_0_1px_rgba(232,64,74,0.5)]"
-                    : "border-ash opacity-60 hover:opacity-100"
+                  r.id === activeId ? "border-ember shadow-[0_0_0_1px_rgba(232,64,74,0.5)]" : "border-ash opacity-60 hover:opacity-100"
                 }`}
               >
                 <img
                   src={r.poster}
                   alt=""
                   loading="lazy"
-                  className={`aspect-video w-full object-cover transition-all duration-500 ${
-                    r.id === activeId ? "" : "grayscale contrast-110"
-                  }`}
+                  className={`aspect-video w-full object-cover transition-all duration-500 ${r.id === activeId ? "" : "grayscale contrast-110"}`}
                 />
                 <span className="absolute inset-x-0 bottom-0 bg-deep/85 px-2 py-1.5 font-mono text-[8px] uppercase tracking-[0.18em] text-bone/85 md:text-[9px]">
                   {r.id} — {r.label}
@@ -179,25 +248,18 @@ export default function Screening() {
           </div>
         </Reveal>
 
-        {/* Transcription */}
         <Reveal delay={140}>
           <aside className="flex h-full flex-col border border-ash bg-coal/70 p-6">
             <div className="flex items-center justify-between border-b border-dashed border-ember/25 pb-3">
-              <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.26em] text-ember">
-                Transcription
-              </h3>
+              <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.26em] text-ember">Transcription</h3>
               <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-fog">PV sonore</span>
             </div>
             <ol className="mt-5 space-y-4">
-              {rec.transcript.map((line, i) => (
+              {rec.transcript.map((line: any, i: number) => (
                 <li
                   key={line.text}
                   className={`border-l-2 pl-4 font-mono text-[11px] leading-relaxed transition-all duration-500 ${
-                    i === activeLine
-                      ? "border-ember bg-blood/10 text-bone"
-                      : i < activeLine
-                        ? "border-ember/30 text-bone/55"
-                        : "border-ash text-fog/60"
+                    i === activeLine ? "border-ember bg-blood/10 text-bone" : i < activeLine ? "border-ember/30 text-bone/55" : "border-ash text-fog/60"
                   }`}
                 >
                   {line.text}
@@ -205,8 +267,9 @@ export default function Screening() {
               ))}
             </ol>
             <p className="mt-auto pt-6 font-mono text-[9px] uppercase leading-relaxed tracking-[0.18em] text-fog/70">
-              Les enregistrements réels des témoins remplaceront ces bandes de démonstration
-              à l'ouverture du dossier.
+              {privateMode
+                ? "Vidéos privées via signed URLs (1h) — ne pas partager l'URL."
+                : "Les enregistrements réels des témoins remplaceront ces bandes de démonstration à l'ouverture du dossier."}
             </p>
           </aside>
         </Reveal>
