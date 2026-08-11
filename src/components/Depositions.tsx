@@ -304,7 +304,7 @@ export default function Depositions({ privateMode = false }: { privateMode?: boo
       }
     } catch (e) {
       console.error(e);
-      alert("Échec approbation — vérifie les droits RLS et le bucket");
+      alert("Échec approbation — la session privée ou le service est indisponible");
     }
   };
 
@@ -317,7 +317,7 @@ export default function Depositions({ privateMode = false }: { privateMode?: boo
       <SectionHead dark={false} num="IV" tag={privateMode ? "Dossier privé — Jenny" : "Sous serment d'amitié"} title={<>Dépositions <span className="italic text-blood">{privateMode ? "privées" : "des témoins"}</span></>} />
       <Reveal className="mb-14 -mt-6 max-w-3xl md:-mt-8">
         <p className="font-mono text-[12px] leading-relaxed text-ink/70">
-          {privateMode ? "Ici, Jenny découvre les vraies dépositions approuvées — avec photos/vidéos via URLs signées (1h). Les pièces en attente peuvent être approuvées ici." : "Les proches du sujet ont été entendus, un par un, avec du café et beaucoup de rires. Chaque témoin pouvait verser un message, une photo, une vidéo — ou les trois. Cliquez pour lire chaque déposition en entier. Le parjure est puni d'un câlin obligatoire."}
+          {privateMode ? "Ici, Jenny découvre les vraies dépositions approuvées — avec photos/vidéos via URLs signées temporaires. Les pièces en attente peuvent être approuvées ici." : "Les proches du sujet ont été entendus, un par un, avec du café et beaucoup de rires. Chaque témoin pouvait verser un message, une photo, une vidéo — ou les trois. Cliquez pour lire chaque déposition en entier. Le parjure est puni d'un câlin obligatoire."}
         </p>
         {privateMode && isSupabaseConfigured && loadingPrivate && <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-ink/60">Chargement des pièces privées…</p>}
         {privateMode && isSupabaseConfigured && !loadingPrivate && pending.length > 0 && <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-brass">{pending.length} en attente — approuve pour les rendre visibles à Jenny</p>}

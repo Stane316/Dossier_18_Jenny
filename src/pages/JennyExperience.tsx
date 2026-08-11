@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Cover from "../components/Cover";
 import Report from "../components/Report";
@@ -8,24 +8,35 @@ import Screening from "../components/Screening";
 import Verdict from "../components/Verdict";
 import Archive from "../components/Archive";
 import IntroOrbit from "../components/IntroOrbit";
-import { isJennyAuthenticated } from "../lib/auth";
+import { verifyJennySession } from "../lib/auth";
+import { usePrivateRouteMeta } from "../hooks/usePrivateRouteMeta";
 
-/**
- * /jenny/experience — private Jenny experience (Phase E)
- * Protected by token gate. For Phase B, we check localStorage token.
- * In production, this would also verify Supabase RLS / server token.
- */
+/** /jenny/experience — private experience protected by a server-verified bounded session. */
 export default function JennyExperience() {
   const nav = useNavigate();
+  const [authorized, setAuthorized] = useState(false);
+  usePrivateRouteMeta();
 
   useEffect(() => {
-    if (!isJennyAuthenticated()) {
-      nav("/jenny", { replace: true });
-    }
+    let active = true;
+    void verifyJennySession().then((valid) => {
+      if (!active) return;
+      if (valid) setAuthorized(true);
+      else nav("/jenny", { replace: true });
+    });
+    return () => {
+      active = false;
+    };
   }, [nav]);
 
-  if (!isJennyAuthenticated()) {
-    return null; // redirecting
+  if (!authorized) {
+    return (
+      <section className="flex min-h-[65vh] items-center justify-center px-5 py-24">
+        <p role="status" className="font-mono text-[10px] uppercase tracking-[0.24em] text-fog">
+          Vérification du sceau privé…
+        </p>
+      </section>
+    );
   }
 
   return (

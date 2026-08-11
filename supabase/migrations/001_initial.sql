@@ -48,7 +48,6 @@ create table public.experience_settings (
 );
 
 insert into public.experience_settings (key, value) values
-  ('private_token', '"JENNY_18_CHANGEME"'::jsonb),
   ('is_open', 'true'::jsonb)
 on conflict do nothing;
 

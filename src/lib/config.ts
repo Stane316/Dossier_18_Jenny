@@ -12,10 +12,6 @@ export const config = {
       import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY
     ),
   },
-  jenny: {
-    token: (import.meta.env.VITE_JENNY_TOKEN as string | undefined) ?? "JENNY_18_0813",
-    // Fallback token si non configuré — reste privé mais documenté
-  },
   siteUrl: (import.meta.env.VITE_SITE_URL as string | undefined) ?? window.location.origin,
   isDev: import.meta.env.DEV,
   isProd: import.meta.env.PROD,

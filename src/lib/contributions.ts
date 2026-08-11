@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { loadLocalContributions } from "./storage";
-import { getSignedUrl } from "./storage";
+import { invokeJennyAccess } from "./auth";
 import type { ContributionRecord } from "../types";
 import { DEPOSITIONS, type Deposition } from "../data";
 
@@ -65,128 +65,91 @@ export async function createPendingContribution(input: {
   return { contributorId: contributor.id, contributionId: contribution.id };
 }
 
-/** Fetch approved contributions from Supabase (Jenny private) — D.1 with signed URLs */
+type PrivateContribution = {
+  id: string;
+  message: string | null;
+  created_at: string;
+  contributor_name: string;
+  media: Array<{
+    type: "photo" | "video";
+    url: string;
+    mime_type: string;
+  }>;
+};
+
+type PrivateContributionResponse = {
+  contributions: PrivateContribution[];
+};
+
+function privateContributionToDeposition(
+  row: PrivateContribution,
+  status: "approved" | "pending"
+): Deposition {
+  const photoUrl = row.media.find((asset) => asset.type === "photo")?.url;
+  const videoUrl = row.media.find((asset) => asset.type === "video")?.url;
+  const hasPhoto = Boolean(photoUrl);
+  const hasVideo = Boolean(videoUrl);
+  const pending = status === "pending";
+
+  return {
+    id: row.id,
+    name: row.contributor_name || "Témoin",
+    link: pending ? "En attente de modération" : "Contribution approuvée — dossier privé",
+    date: new Date(row.created_at).toLocaleDateString("fr-FR"),
+    quote: row.message
+      ? row.message.split("\n")[0].slice(0, 92)
+      : hasPhoto
+        ? pending
+          ? "Photo en attente"
+          : "Photo approuvée — scellée au dossier."
+        : hasVideo
+          ? pending
+            ? "Vidéo en attente"
+            : "Vidéo approuvée — scellée au dossier."
+          : pending
+            ? "Pièce en attente"
+            : "Pièce approuvée.",
+    full:
+      row.message ??
+      (pending
+        ? "Pièce média en attente de validation."
+        : "Pièce média approuvée — visible dans le dossier privé."),
+    photo: photoUrl,
+    videoLabel: hasVideo
+      ? pending
+        ? "Vidéo — en attente"
+        : "Vidéo — lecture privée disponible"
+      : undefined,
+    videoUrl,
+    status,
+  };
+}
+
+async function fetchPrivateDepositions(
+  status: "approved" | "pending"
+): Promise<Deposition[]> {
+  if (!isSupabaseConfigured) return [];
+  const response = await invokeJennyAccess<PrivateContributionResponse>(
+    "list-contributions",
+    { status }
+  );
+  if (!Array.isArray(response.contributions)) return [];
+  return response.contributions.map((row) => privateContributionToDeposition(row, status));
+}
+
+/** Fetch approved contributions and short-lived media URLs through the protected Edge Function. */
 export async function fetchApprovedDepositions(): Promise<Deposition[]> {
-  if (!isSupabaseConfigured || !supabase) return [];
   try {
-    const { data, error } = await supabase
-      .from("contributions")
-      .select(
-        `
-        id, message, created_at,
-        contributors ( name ),
-        media_assets ( type, storage_path, mime_type )
-      `
-      )
-      .eq("status", "approved")
-      .order("created_at", { ascending: false });
-
-    if (error || !data) return [];
-
-    const rows = data as unknown as Array<{
-      id: string;
-      message: string | null;
-      created_at: string;
-      contributors: { name: string } | null;
-      media_assets: Array<{ type: string; storage_path: string; mime_type: string }>;
-    }>;
-
-    const depositions: Deposition[] = [];
-    for (const row of rows) {
-      const hasPhoto = row.media_assets?.some((m) => m.type === "photo");
-      const hasVideo = row.media_assets?.some((m) => m.type === "video");
-      let photoUrl: string | undefined = undefined;
-      let videoUrl: string | undefined = undefined;
-      if (hasPhoto) {
-        const photoAsset = row.media_assets.find((m) => m.type === "photo");
-        if (photoAsset?.storage_path) {
-          const signed = await getSignedUrl(photoAsset.storage_path, 3600);
-          if (signed) photoUrl = signed;
-        }
-      }
-      if (hasVideo) {
-        const videoAsset = row.media_assets.find((m) => m.type === "video");
-        if (videoAsset?.storage_path) {
-          const signed = await getSignedUrl(videoAsset.storage_path, 3600);
-          if (signed) videoUrl = signed;
-        }
-      }
-      depositions.push({
-        id: row.id,
-        name: row.contributors?.name ?? "Témoin",
-        link: "Contribution approuvée — dossier privé",
-        date: new Date(row.created_at).toLocaleDateString("fr-FR"),
-        quote: row.message
-          ? row.message.split("\n")[0].slice(0, 92)
-          : hasPhoto
-            ? "Photo approuvée — scellée au dossier."
-            : hasVideo
-              ? "Vidéo approuvée — scellée au dossier."
-              : "Pièce approuvée.",
-        full: row.message ?? "Pièce média approuvée — visible dans la salle de projection privée.",
-        photo: photoUrl,
-        videoLabel: hasVideo ? (videoUrl ? "Vidéo — lecture privée disponible" : "Vidéo — en cours de traitement") : undefined,
-        videoUrl,
-        status: "approved",
-      });
-    }
-    return depositions;
+    return await fetchPrivateDepositions("approved");
   } catch {
     return [];
   }
 }
 
-/** Fetch pending contributions (for admin / Jenny moderation) — D.2 */
+/** Fetch pending contributions through the same server-verified private session. */
 export async function fetchPendingDepositions(): Promise<Deposition[]> {
-  if (!isSupabaseConfigured || !supabase) return [];
   try {
-    const { data, error } = await supabase
-      .from("contributions")
-      .select(
-        `
-        id, message, created_at,
-        contributors ( name ),
-        media_assets ( type, storage_path, mime_type )
-      `
-      )
-      .eq("status", "pending")
-      .order("created_at", { ascending: false });
-    if (error || !data) return [];
-    const rows = data as unknown as Array<{
-      id: string;
-      message: string | null;
-      created_at: string;
-      contributors: { name: string } | null;
-      media_assets: Array<{ type: string; storage_path: string; mime_type: string }>;
-    }>;
-    const out: Deposition[] = [];
-    for (const row of rows) {
-      const hasPhoto = row.media_assets?.some((m) => m.type === "photo");
-      const hasVideo = row.media_assets?.some((m) => m.type === "video");
-      let photoUrl: string | undefined;
-      let videoUrl: string | undefined;
-      if (hasPhoto) {
-        const a = row.media_assets.find((m) => m.type === "photo");
-        if (a?.storage_path) photoUrl = (await getSignedUrl(a.storage_path, 3600)) ?? undefined;
-      }
-      if (hasVideo) {
-        const a = row.media_assets.find((m) => m.type === "video");
-        if (a?.storage_path) videoUrl = (await getSignedUrl(a.storage_path, 3600)) ?? undefined;
-      }
-      out.push({
-        id: row.id,
-        name: row.contributors?.name ?? "Témoin",
-        link: "En attente de modération",
-        date: new Date(row.created_at).toLocaleDateString("fr-FR"),
-        quote: row.message ? row.message.split("\n")[0].slice(0, 92) : hasPhoto ? "Photo en attente" : hasVideo ? "Vidéo en attente" : "Pièce en attente",
-        full: row.message ?? "Pièce média en attente de validation.",
-        photo: photoUrl,
-        videoLabel: hasVideo ? "Vidéo — en attente" : undefined,
-        videoUrl,
-        status: "pending",
-      });
-    }
-    return out;
+    return await fetchPrivateDepositions("pending");
   } catch {
     return [];
   }
@@ -197,9 +160,11 @@ export function getAllPublicDepositions(): Deposition[] {
   return [...getLocalDepositions(), ...getSeedDepositions()];
 }
 
-/** Pending → Approved flow helper (for admin via Dashboard or future /admin) */
+/** Pending → approved through the server-verified private Edge Function. */
 export async function approveContribution(contributionId: string): Promise<void> {
-  if (!isSupabaseConfigured || !supabase) throw new Error("Supabase non configuré");
-  const { error } = await supabase.from("contributions").update({ status: "approved" }).eq("id", contributionId);
-  if (error) throw new Error(error.message);
+  if (!isSupabaseConfigured) throw new Error("Supabase non configuré");
+  const response = await invokeJennyAccess<{ ok: boolean }>("approve-contribution", {
+    contributionId,
+  });
+  if (!response.ok) throw new Error("Échec de l'approbation");
 }

@@ -3,7 +3,6 @@
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_ANON_KEY?: string;
-  readonly VITE_JENNY_TOKEN?: string;
   readonly VITE_SITE_URL?: string;
   readonly VITE_APP_ENV?: string;
 }

@@ -12,8 +12,8 @@ import NotFound from "../pages/NotFound";
  * /                 → Landing (dossier teaser)
  * /participate      → Contributor form (isolated)
  * /thanks           → Success confirmation
- * /jenny            → Private gate (token)
- * /jenny/experience → Full Jenny experience (protected)
+ * /jenny            → Private server-validated access gate
+ * /jenny/experience → Full Jenny experience (bounded session required)
  * /jenny/memories   → (alias to experience for now, Phase E will expand)
  */
 export const router = createBrowserRouter([

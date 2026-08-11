@@ -3,7 +3,7 @@ import { REPORT_CONCLUSION, REPORT_FACTS } from "../data";
 import { Reveal, useInView, useTypewriter } from "../hooks";
 import { Stamp } from "./Chrome";
 import { ArrowDownIcon } from "./icons";
-import { isJennyAuthenticated } from "../lib/auth";
+import { hasJennySession } from "../lib/auth";
 
 export default function Report() {
   /* Identité stable — le hook machine à écrire ne doit jamais redémarrer */
@@ -36,7 +36,7 @@ export default function Report() {
           </Reveal>
           <Reveal delay={360} className="mt-9 flex flex-wrap items-center gap-3">
             <Stamp rot={-6} className="text-[11px]">PV N°001 — certifié conforme</Stamp>
-            {isJennyAuthenticated() && <span className="inline-flex border border-brass bg-brass/15 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-brass">MJ • privé</span>}
+            {hasJennySession() && <span className="inline-flex border border-brass bg-brass/15 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-brass">MJ • privé</span>}
           </Reveal>
         </div>
 

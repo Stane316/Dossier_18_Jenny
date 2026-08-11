@@ -3,7 +3,8 @@
  * - Generates non-predictable paths per Phase 7 §06
  * - Provides localStorage fallback when Supabase not configured
  * - Handles blob URL lifecycle
- * - D.1: real Supabase Storage pipeline with progress simulation + signed URLs
+ * - D.1: real Supabase upload pipeline with progress simulation
+ * - Private reads and signed URLs are delegated to the Jenny Edge Function
  */
 
 import type { ContributionRecord } from "../types";
@@ -11,7 +12,6 @@ import { supabase, isSupabaseConfigured } from "./supabase";
 import { STORAGE_BUCKETS } from "./config";
 
 const LOCAL_KEY = "jenny:contributions";
-const TOKEN_KEY = "jenny:token";
 
 /** Generate storage path: contributions/{uuid}/photos/{id}.ext */
 export function buildStoragePath(
@@ -62,17 +62,6 @@ export function clearLocalContributions() {
   localStorage.removeItem(LOCAL_KEY);
 }
 
-/** Jenny token persistence (private access) */
-export function saveJennyToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-export function loadJennyToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-export function clearJennyToken() {
-  localStorage.removeItem(TOKEN_KEY);
-}
-
 /** Create blob URL and track for revocation */
 export function createPreviewUrl(file: File): string {
   return URL.createObjectURL(file);
@@ -111,14 +100,6 @@ export async function uploadToBucket(
     if (timer) clearInterval(timer);
     throw e;
   }
-}
-
-/** Create a signed URL for private media (Jenny private experience) — 1h expiry default */
-export async function getSignedUrl(path: string, expiresIn = 3600): Promise<string | null> {
-  if (!isSupabaseConfigured || !supabase) return null;
-  const { data, error } = await supabase.storage.from(STORAGE_BUCKETS.media).createSignedUrl(path, expiresIn);
-  if (error || !data?.signedUrl) return null;
-  return data.signedUrl;
 }
 
 /** Helper to upload photo + video for a contribution with granular progress 50→90% */
