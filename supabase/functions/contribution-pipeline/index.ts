@@ -93,13 +93,28 @@ type ReservedMedia = {
   size_bytes: number;
 };
 
+function serverSecretKey(): string {
+  const legacyKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (legacyKey) return legacyKey;
+
+  try {
+    const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    return typeof keys.default === "string" ? keys.default : "";
+  } catch {
+    return "";
+  }
+}
+
 function serverConfig(): {
   supabaseUrl: string;
   serviceRoleKey: string;
   rateLimitSecret: string;
 } | null {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const serviceRoleKey = serverSecretKey();
   const rateLimitSecret = Deno.env.get("CONTRIBUTION_RATE_LIMIT_SECRET") ?? "";
   if (!supabaseUrl || !serviceRoleKey || rateLimitSecret.length < 32) return null;
   return { supabaseUrl, serviceRoleKey, rateLimitSecret };

@@ -55,6 +55,21 @@ type PrivateMedia = {
   mime_type: string;
 };
 
+function serverSecretKey(): string {
+  const legacyKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (legacyKey) return legacyKey;
+
+  try {
+    const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    return typeof keys.default === "string" ? keys.default : "";
+  } catch {
+    return "";
+  }
+}
+
 function serverConfig(): {
   allowedEmail: string;
   supabaseUrl: string;
@@ -62,7 +77,7 @@ function serverConfig(): {
 } | null {
   const allowedEmail = (Deno.env.get("JENNY_ALLOWED_EMAIL") ?? "").trim().toLowerCase();
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const serviceRoleKey = serverSecretKey();
   if (!allowedEmail || !supabaseUrl || !serviceRoleKey) return null;
   return { allowedEmail, supabaseUrl, serviceRoleKey };
 }
