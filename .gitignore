@@ -3,3 +3,8 @@ dist
 .env
 .env.local
 .DS_Store
+
+# Private Jenny media must live in Supabase Storage, never in public/.
+public/memories/
+public/images/memories/
+public/videos/memories/

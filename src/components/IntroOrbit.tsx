@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MEMORIES, MEMORIES_FALLBACK } from "../data";
+import { MEMORIES_FALLBACK } from "../data";
 import { useReducedMotion } from "../hooks";
 import { isSupabaseConfigured } from "../lib/supabase";
 import { fetchApprovedDepositions } from "../lib/contributions";
@@ -10,64 +10,61 @@ import { loadLocalContributions } from "../lib/storage";
  * - Constellation de N souvenirs (photos) qui gravitent autour de MJ
  * - Scroll 0→100% : orbit large → converge → MJ domine → transition vers JennyCore
  * - Fallback DOM 2.5D (pas de WebGL), progressive enhancement
- * - Dossier photos : public/images/memories/ → MEMORIES_FALLBACK + Supabase approved + local
+ * - Les vrais souvenirs proviennent uniquement de sources privées :
+ *   Supabase approved (URL signée) ou contribution locale du navigateur.
  */
 
 type OrbitItem = { id: string; src: string; alt: string };
 
-function useMemories(): OrbitItem[] {
-  // Start with real MEMORIES (public/memories WhatsApp) + fallback, so orbit shows true souvenirs immediately
-  const initial = (MEMORIES.length > 0 ? MEMORIES : MEMORIES_FALLBACK).map((src, i) => ({
-    id: `mem-${i}`,
+function fallbackItems(): OrbitItem[] {
+  return MEMORIES_FALLBACK.map((src, i) => ({
+    id: `fallback-${i}`,
     src,
-    alt: `Souvenir ${i + 1}`,
+    alt: `Illustration du dossier ${i + 1}`,
   }));
-  const [items, setItems] = useState<OrbitItem[]>(initial);
+}
+
+function useMemories(): OrbitItem[] {
+  const [items, setItems] = useState<OrbitItem[]>(fallbackItems);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const extra: OrbitItem[] = [];
+      const privatePhotos: OrbitItem[] = [];
 
-      // Local contributions with photoUrl dataURL
+      // Contribution locale : privée au navigateur courant, jamais publiée sous public/.
       const locals = loadLocalContributions().filter((r) => r.photoUrl);
       locals.forEach((r, i) => {
-        if (r.photoUrl) extra.push({ id: `local-${i}-${r.id}`, src: r.photoUrl, alt: r.contributorName });
+        if (r.photoUrl) {
+          privatePhotos.push({ id: `local-${i}-${r.id}`, src: r.photoUrl, alt: r.contributorName });
+        }
       });
 
-      // Supabase approved
+      // Contributions approuvées : URLs signées du bucket Supabase privé.
       if (isSupabaseConfigured) {
-        try {
-          const approved = await fetchApprovedDepositions();
-          approved.forEach((d, i) => {
-            if (d.photo) extra.push({ id: `approved-${i}-${d.id}`, src: d.photo, alt: d.name });
-            // Also handle video as poster for orbit (use first frame)
-            if (!d.photo && d.videoUrl) extra.push({ id: `approved-vid-${i}-${d.id}`, src: d.videoUrl, alt: d.name });
-          });
-        } catch {
-          /* ignore */
-        }
+        const approved = await fetchApprovedDepositions();
+        approved.forEach((d, i) => {
+          if (d.photo) {
+            privatePhotos.push({ id: `approved-${i}-${d.id}`, src: d.photo, alt: d.name });
+          }
+        });
       }
 
-      // Merge: extra (local + approved) in front, then real MEMORIES, then fallback, cap at 24 for orbit performance
       if (!cancelled) {
-        const base = MEMORIES.length > 0 ? MEMORIES : MEMORIES_FALLBACK;
-        const baseItems = base.map((src, i) => ({ id: `base-${i}`, src, alt: `Souvenir ${i + 1}` }));
-        const merged = [...extra, ...baseItems].slice(0, 24);
-        // Deduplicate by src
+        const merged = [...privatePhotos, ...fallbackItems()].slice(0, 24);
         const seen = new Set<string>();
-        const dedup = merged.filter((m) => {
-          if (seen.has(m.src)) return false;
-          seen.add(m.src);
+        const dedup = merged.filter((memory) => {
+          if (seen.has(memory.src)) return false;
+          seen.add(memory.src);
           return true;
         });
-        if (dedup.length !== items.length || dedup.some((m, i) => m.src !== items[i]?.src)) {
-          setItems(dedup);
-        }
+        setItems(dedup);
       }
     };
-    load();
-    return () => { cancelled = true; };
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return items;
@@ -189,25 +186,13 @@ export default function IntroOrbit() {
                     aspectRatio: "4/3",
                   }}
                 >
-                  {m.src.endsWith(".mp4") ? (
-                    <video
-                      src={m.src}
-                      muted
-                      loop
-                      playsInline
-                      poster={MEMORIES_FALLBACK[i % MEMORIES_FALLBACK.length]}
-                      className="h-full w-full object-cover saturate-[0.88] contrast-[1.04]"
-                      style={{ transform: `scale(${1 + effectiveProgress * 0.06})` }}
-                    />
-                  ) : (
-                    <img
-                      src={m.src}
-                      alt={m.alt}
-                      loading={i < 6 ? "eager" : "lazy"}
-                      className="h-full w-full object-cover saturate-[0.88] contrast-[1.04]"
-                      style={{ transform: `scale(${1 + effectiveProgress * 0.06})` }}
-                    />
-                  )}
+                  <img
+                    src={m.src}
+                    alt={m.alt}
+                    loading={i < 6 ? "eager" : "lazy"}
+                    className="h-full w-full object-cover saturate-[0.88] contrast-[1.04]"
+                    style={{ transform: `scale(${1 + effectiveProgress * 0.06})` }}
+                  />
                 </div>
               </div>
             );

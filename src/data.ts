@@ -253,7 +253,9 @@ export const CLOSING_LINE =
   "18 ans n'est que le numéro de la première pièce du prochain dossier.";
 
 /* ── MÉMOIRES — orbit intro E.1 ── */
-// Fallback si public/memories est vide — puis remplacé par tes vrais souvenirs + Supabase approved
+// Visuels publics non privés utilisés uniquement lorsque Supabase n'a encore
+// retourné aucun souvenir approuvé. Les vrais souvenirs restent dans le bucket
+// privé birthday-media et ne doivent jamais être ajoutés sous public/.
 export const MEMORIES_FALLBACK: string[] = [
   "/images/piece-chaton.jpg",
   "/images/piece-lapin.jpg",
@@ -262,39 +264,6 @@ export const MEMORIES_FALLBACK: string[] = [
   "/images/piece-bac.jpg",
   "/images/emblem-cat.jpg",
   "/images/papillon-or.jpg",
-];
-
-// Vrais souvenirs déposés dans public/memories/ (WhatsApp + Supabase) — utilisés par IntroOrbit et Screening private
-export const MEMORIES: string[] = [
-  "/memories/WhatsApp%20Image%202026-02-08%20at%2023.41.44%20%282%29.jpeg",
-  "/memories/WhatsApp%20Image%202026-02-08%20at%2023.41.44%20%283%29.jpeg",
-  "/memories/WhatsApp%20Image%202026-02-08%20at%2023.41.45%20%283%29.jpeg",
-  "/memories/WhatsApp%20Image%202026-02-08%20at%2023.41.45.jpeg",
-  "/memories/WhatsApp%20Image%202026-02-08%20at%2023.41.46%20%281%29.jpeg",
-  "/memories/WhatsApp%20Image%202026-02-08%20at%2023.41.46.jpeg",
-  "/memories/WhatsApp%20Image%202026-02-08%20at%2023.41.47.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2015.51.26.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2015.52.08.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2015.55.44.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2015.59.30.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2016.02.40.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2016.02.41.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2016.11.03.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2016.11.04.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2016.11.44.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2016.11.45.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-08%20at%2016.14.05.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-09%20at%2021.28.35%20%281%29.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-09%20at%2021.31.28.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-09%20at%2021.31.55%20%281%29.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-09%20at%2021.31.55.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-09%20at%2021.31.56.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-09%20at%2021.32.13.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-09%20at%2021.32.14%20%281%29.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-09%20at%2021.32.14.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-09%20at%2021.32.37.jpeg",
-  "/memories/WhatsApp%20Image%202026-08-09%20at%2021.32.43.jpeg",
-  "/memories/WhatsApp%20Video%202026-08-09%20at%2021.32.13.mp4",
 ];
 
 /* ── ANNEXE — système visuel (source de vérité pour l'implémentation) ── */

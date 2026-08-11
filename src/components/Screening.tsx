@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { RECORDINGS } from "../data";
-import { MEMORIES } from "../data";
 import { Reveal, useReducedMotion } from "../hooks";
 import { SectionHead } from "./Chrome";
 import { PauseIcon, PlayIcon, ReelIcon } from "./icons";
@@ -31,67 +30,48 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
   const playerRef = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
 
-  // Load private videos: Supabase approved + WhatsApp video from MEMORIES
+  // Les vidéos privées proviennent exclusivement du bucket Supabase privé.
+  // Aucune vidéo personnelle ne doit être importée depuis public/.
   useEffect(() => {
     if (!privateMode) return;
     let cancelled = false;
     const load = async () => {
       const recs: PrivateRecording[] = [];
 
-      // 1. WhatsApp video from public/memories (always available in private)
-      const waVideo = MEMORIES.find((m) => m.endsWith(".mp4"));
-      if (waVideo) {
-        recs.push({
-          id: "PR-01",
-          label: "« Souvenir — WhatsApp »",
-          camera: "CAM 04 — WHATSAPP",
-          src: waVideo,
-          poster: MEMORIES.find((m) => m.endsWith(".jpeg")) ?? RECORDINGS[0].poster,
-          duration: 14,
-          transcript: [
-            { at: 0, text: "00:00 — Archive WhatsApp — souvenir brut, non filtré." },
-            { at: 4, text: "00:04 — Rires, bruit de fond, la bande est là." },
-            { at: 9, text: "00:09 — Jenny au centre, comme toujours." },
-          ],
+      if (isSupabaseConfigured) {
+        const approved = await fetchApprovedDepositions();
+        approved.forEach((d, idx) => {
+          if (d.videoUrl) {
+            recs.push({
+              id: `PR-${String(idx + 1).padStart(2, "0")}`,
+              label: `« ${d.name} »`,
+              camera: `CAM ${String(idx + 4).padStart(2, "0")} — TÉMOIN`,
+              src: d.videoUrl,
+              poster: d.photo ?? RECORDINGS[0].poster,
+              duration: 12,
+              transcript: [
+                { at: 0, text: `00:00 — Déposition de ${d.name} — lecture privée.` },
+                { at: 3, text: `00:03 — ${d.quote.slice(0, 60)}` },
+                { at: 8, text: "00:08 — Preuve versée au dossier privé." },
+              ],
+            });
+          }
         });
       }
 
-      // 2. Supabase approved videos (signed URLs)
-      if (isSupabaseConfigured) {
-        try {
-          const approved = await fetchApprovedDepositions();
-          approved.forEach((d, idx) => {
-            if (d.videoUrl) {
-              recs.push({
-                id: `PR-${String(idx + 2).padStart(2, "0")}`,
-                label: `« ${d.name} »`,
-                camera: `CAM ${String(idx + 5).padStart(2, "0")} — TÉMOIN`,
-                src: d.videoUrl!,
-                poster: d.photo ?? RECORDINGS[0].poster,
-                duration: 12,
-                transcript: [
-                  { at: 0, text: `00:00 — Déposition de ${d.name} — lecture privée.` },
-                  { at: 3, text: `00:03 — ${d.quote.slice(0, 60)}` },
-                  { at: 8, text: "00:08 — Preuve versée au dossier privé." },
-                ],
-              });
-            }
-          });
-        } catch {
-          /* ignore */
-        }
-      }
-
-      if (!cancelled && recs.length > 0) {
+      if (!cancelled) {
         setPrivateRecordings(recs);
-        setActiveId(recs[0].id);
+        if (recs[0]) setActiveId(recs[0].id);
       }
     };
-    load();
-    return () => { cancelled = true; };
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [privateMode]);
 
-  const recordings = privateMode && privateRecordings && privateRecordings.length > 0 ? privateRecordings : RECORDINGS;
+  const hasPrivateRecordings = privateMode && Boolean(privateRecordings?.length);
+  const recordings = hasPrivateRecordings ? privateRecordings! : RECORDINGS;
   const rec = (recordings as any).find((r: any) => r.id === activeId) ?? recordings[0];
 
   useEffect(() => {
@@ -153,12 +133,22 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
       <Reveal className="-mt-6 mb-12 max-w-3xl md:-mt-8">
         <p className="font-mono text-[12px] leading-relaxed text-bone/70">
           {privateMode
-            ? "Ici, Jenny découvre les vidéos privées — WhatsApp et dépositions vidéo approuvées (signed URLs 1h). Lumière éteinte, son monté."
+            ? "Les vidéos privées approuvées sont chargées depuis Supabase au moyen d'URLs signées temporaires. Aucun souvenir personnel n'est servi depuis le dossier public."
             : "Les vidéos jointes au dossier ne sont pas de simples pièces : ce sont des scènes reconstituées. Lumière éteinte, son monté. Le greffe transcrit en direct."}
         </p>
+        {privateMode && privateRecordings === null && (
+          <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-fog">
+            Vérification des enregistrements privés…
+          </p>
+        )}
         {privateMode && privateRecordings && privateRecordings.length > 0 && (
           <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-brass">
             {privateRecordings.length} vidéo{privateRecordings.length > 1 ? "s" : ""} privée{privateRecordings.length > 1 ? "s" : ""} — lecture via URL signée
+          </p>
+        )}
+        {privateMode && privateRecordings?.length === 0 && (
+          <p className="mt-3 border-l-2 border-brass/60 pl-3 font-mono text-[10px] uppercase leading-relaxed tracking-[0.14em] text-brass">
+            Aucune vidéo privée disponible — bandes de démonstration affichées temporairement.
           </p>
         )}
       </Reveal>
@@ -267,9 +257,9 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
               ))}
             </ol>
             <p className="mt-auto pt-6 font-mono text-[9px] uppercase leading-relaxed tracking-[0.18em] text-fog/70">
-              {privateMode
-                ? "Vidéos privées via signed URLs (1h) — ne pas partager l'URL."
-                : "Les enregistrements réels des témoins remplaceront ces bandes de démonstration à l'ouverture du dossier."}
+              {hasPrivateRecordings
+                ? "Vidéos privées via URLs signées temporaires — ne pas partager l'URL."
+                : "Bandes de démonstration publiques — les médias privés restent dans Supabase Storage."}
             </p>
           </aside>
         </Reveal>
