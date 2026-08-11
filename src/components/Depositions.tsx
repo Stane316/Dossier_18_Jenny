@@ -161,8 +161,18 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
               <label htmlFor="dep-photo" className={`flex h-[46px] cursor-pointer items-center justify-center border border-dashed px-2 text-center font-mono text-[10px] uppercase tracking-[0.16em] transition-colors ${fieldErrors.photo || photoInstantError ? "border-blood text-ember bg-blood/10" : "border-bone/35 text-bone/60 hover:border-ember hover:text-ember"}`}>{photo ? photo.name.slice(0, 18) : "Joindre une photo"}</label>
               <input id="dep-photo" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" className="sr-only" onChange={(e) => handlePhoto(e.target.files?.[0] ?? null)} aria-invalid={Boolean(fieldErrors.photo || photoInstantError)} />
               {(fieldErrors.photo || photoInstantError) && <p role="alert" className="mt-2 font-mono text-[11px] leading-snug text-ember">{fieldErrors.photo ?? photoInstantError}</p>}
-              {photo && !photoInstantError && !fieldErrors.photo && <p className="mt-2 font-mono text-[10px] text-bone/60">{(photo.size/1048576).toFixed(1)} Mo — {photo.type}</p>}
-              {photoUrl && !photoInstantError && <img src={photoUrl} alt="Aperçu" className="mt-3 h-20 w-full border border-bone/20 object-cover" />}
+              {photo && !photoInstantError && !fieldErrors.photo && (
+                <div className="mt-2 flex items-center justify-between gap-2 border border-bone/20 bg-ink/40 px-2 py-1">
+                  <span className="truncate font-mono text-[9px] uppercase tracking-[0.14em] text-bone/70">{(photo.size/1048576).toFixed(1)} Mo — {photo.type || "image"}</span>
+                  <button type="button" onClick={() => { handlePhoto(null); const el = document.getElementById('dep-photo') as HTMLInputElement | null; if (el) el.value = ''; }} className="shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-ember underline decoration-ember/40 underline-offset-4 hover:text-blood">Retirer</button>
+                </div>
+              )}
+              {photoUrl && !photoInstantError && !fieldErrors.photo && (
+                <div className="relative mt-3 group">
+                  <img src={photoUrl} alt="Aperçu" className="h-20 w-full border border-bone/20 object-cover" />
+                  <button type="button" onClick={() => { handlePhoto(null); const el = document.getElementById('dep-photo') as HTMLInputElement | null; if (el) el.value = ''; }} className="absolute right-1 top-1 bg-ink/85 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-bone opacity-0 transition-opacity group-hover:opacity-100 hover:text-ember focus:opacity-100" aria-label="Retirer la photo">✕ Retirer</button>
+                </div>
+              )}
             </div>
 
             <div>
@@ -170,7 +180,12 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
               <label htmlFor="dep-video" className={`flex h-[46px] cursor-pointer items-center justify-center border border-dashed px-2 text-center font-mono text-[10px] uppercase tracking-[0.16em] transition-colors ${fieldErrors.video || videoInstantError ? "border-blood text-ember bg-blood/10" : "border-bone/35 text-bone/60 hover:border-ember hover:text-ember"}`}>{video ? video.name.slice(0, 18) : "Joindre une vidéo"}</label>
               <input id="dep-video" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v" className="sr-only" onChange={(e) => handleVideo(e.target.files?.[0] ?? null)} aria-invalid={Boolean(fieldErrors.video || videoInstantError)} />
               {(fieldErrors.video || videoInstantError) && <p role="alert" className="mt-2 font-mono text-[11px] leading-snug text-ember">{fieldErrors.video ?? videoInstantError}</p>}
-              {video && !videoInstantError && !fieldErrors.video && <span className="mt-3 inline-flex items-center gap-1.5 border border-bone/20 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-bone/70"><ReelIcon className="h-3.5 w-3.5 text-blood" />{(video.size/1048576).toFixed(1)} Mo</span>}
+              {video && !videoInstantError && !fieldErrors.video && (
+                <div className="mt-2 flex items-center justify-between gap-2 border border-bone/20 bg-ink/40 px-2 py-1">
+                  <span className="flex items-center gap-1.5 truncate font-mono text-[9px] uppercase tracking-[0.14em] text-bone/70"><ReelIcon className="h-3 w-3 text-blood" />{(video.size/1048576).toFixed(1)} Mo — {video.type}</span>
+                  <button type="button" onClick={() => { handleVideo(null); const el = document.getElementById('dep-video') as HTMLInputElement | null; if (el) el.value = ''; }} className="shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-ember underline decoration-ember/40 underline-offset-4 hover:text-blood">Retirer</button>
+                </div>
+              )}
             </div>
           </div>
         </div>
