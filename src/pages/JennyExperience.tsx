@@ -32,7 +32,7 @@ export default function JennyExperience() {
       <Cover />
       <Report />
       <Evidence />
-      <Depositions />
+      <Depositions privateMode />
       <Screening />
       <Verdict />
       <Archive />

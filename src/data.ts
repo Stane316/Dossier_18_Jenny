@@ -120,6 +120,7 @@ export const EXHIBITS: Exhibit[] = [
 
 /* ── DÉPOSITIONS — témoins ── */
 export interface Deposition {
+  id?: string; // Supabase contribution id (for moderation)
   name: string;
   link: string;
   date: string;
@@ -127,6 +128,8 @@ export interface Deposition {
   full: string;
   photo?: string;
   videoLabel?: string;
+  videoUrl?: string; // signed URL for private video
+  status?: "pending" | "approved";
 }
 
 export const DEPOSITIONS: Deposition[] = [

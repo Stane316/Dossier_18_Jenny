@@ -3,23 +3,25 @@ import { DEPOSITIONS, type Deposition } from "../data";
 import { Reveal } from "../hooks";
 import { SectionHead, Stamp } from "./Chrome";
 import { ReelIcon } from "./icons";
-import { getAllPublicDepositions } from "../lib/contributions";
+import { getAllPublicDepositions, fetchApprovedDepositions, fetchPendingDepositions, approveContribution } from "../lib/contributions";
 import { saveLocalContribution } from "../lib/storage";
+import { isSupabaseConfigured } from "../lib/supabase";
 import { validateContribution, validatePhotoFile, validateVideoFile, getFieldErrors } from "../lib/validation";
 import { ZodError } from "zod";
 import type { UploadState } from "../types";
 
-function DepositionCard({ d, i, isNew = false }: { d: Deposition; i: number; isNew?: boolean }) {
+function DepositionCard({ d, i, isNew = false, onApprove }: { d: Deposition; i: number; isNew?: boolean; onApprove?: (id: string) => void }) {
   const [open, setOpen] = useState(isNew);
+  const isPending = d.status === "pending";
   return (
     <Reveal
       delay={Math.min(i, 5) * 90}
       as="article"
-      className="relative border border-ink/20 bg-parch p-6 shadow-[7px_7px_0_rgba(23,16,19,0.14)] transition-transform duration-300 hover:-translate-y-1 md:p-7"
+      className={`relative border p-6 shadow-[7px_7px_0_rgba(23,16,19,0.14)] transition-transform duration-300 hover:-translate-y-1 md:p-7 ${isPending ? "border-brass/50 bg-amber-50" : "border-ink/20 bg-parch"}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <span className="font-mono text-[9px] uppercase tracking-[0.28em] text-blood">Témoin entendu</span>
+          <span className={`font-mono text-[9px] uppercase tracking-[0.28em] ${isPending ? "text-brass" : "text-blood"}`}>{isPending ? "En attente — modération" : "Témoin entendu"}</span>
           <h3 className="mt-1 font-display text-2xl font-bold text-ink">{d.name}</h3>
           <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink/55">{d.link}</p>
         </div>
@@ -30,10 +32,17 @@ function DepositionCard({ d, i, isNew = false }: { d: Deposition; i: number; isN
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {d.photo && <img src={d.photo} alt={`Photo jointe par ${d.name}`} className="h-20 w-20 border border-ink/25 object-cover" />}
-        {d.videoLabel && (
+        {d.videoUrl ? (
+          <a href={d.videoUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 border border-ink/30 bg-ink px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-parch hover:bg-blood">
+            <ReelIcon className="h-3.5 w-3.5 text-brass" />Voir la vidéo (privé)
+          </a>
+        ) : d.videoLabel ? (
           <span className="inline-flex items-center gap-1.5 border border-ink/30 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-ink/75">
             <ReelIcon className="h-3.5 w-3.5 text-blood" />{d.videoLabel}
           </span>
+        ) : null}
+        {isPending && d.id && onApprove && (
+          <button type="button" onClick={() => onApprove(d.id!)} className="ml-auto border border-brass bg-brass px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink hover:bg-amber-600">Approuver</button>
         )}
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="ml-auto font-mono text-[10px] uppercase tracking-[0.18em] text-blood underline decoration-blood/50 underline-offset-4 transition-colors hover:text-ink">
           {open ? "Réduire la déposition" : "Lire la déposition complète"}
@@ -255,24 +264,67 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
   );
 }
 
-export default function Depositions() {
+export default function Depositions({ privateMode = false }: { privateMode?: boolean }) {
   const [extra, setExtra] = useState<Deposition[]>([]);
+  const [approved, setApproved] = useState<Deposition[]>([]);
+  const [pending, setPending] = useState<Deposition[]>([]);
+  const [loadingPrivate, setLoadingPrivate] = useState(false);
+
   useEffect(() => {
     const persisted = getAllPublicDepositions();
     const seedNames = new Set(DEPOSITIONS.map((d) => d.name + d.quote));
     const locals = persisted.filter((d) => !seedNames.has(d.name + d.quote));
     if (locals.length > 0) setExtra(locals);
   }, []);
+
+  useEffect(() => {
+    if (!privateMode || !isSupabaseConfigured) return;
+    let cancelled = false;
+    setLoadingPrivate(true);
+    Promise.all([fetchApprovedDepositions(), fetchPendingDepositions()])
+      .then(([appr, pend]) => {
+        if (!cancelled) {
+          setApproved(appr);
+          setPending(pend);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPrivate(false);
+      });
+    return () => { cancelled = true; };
+  }, [privateMode]);
+
+  const handleApprove = async (id: string) => {
+    try {
+      await approveContribution(id);
+      const item = pending.find((p) => p.id === id);
+      if (item) {
+        setPending((prev) => prev.filter((p) => p.id !== id));
+        setApproved((prev) => [{ ...item, status: "approved", link: "Contribution approuvée — dossier privé" }, ...prev]);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Échec approbation — vérifie les droits RLS et le bucket");
+    }
+  };
+
   const handleAdd = (d: Deposition) => setExtra((prev) => [d, ...prev]);
-  const all = [...extra, ...DEPOSITIONS];
+  const allPublic = [...extra, ...DEPOSITIONS];
+  const allPrivate = privateMode ? [...pending, ...approved, ...extra, ...DEPOSITIONS] : allPublic;
+  const all = allPrivate;
   return (
     <section id="temoins" data-chapter="IV — Dépositions" className="paper-surface px-5 py-24 text-ink md:px-12 md:py-36 lg:px-20">
-      <SectionHead dark={false} num="IV" tag="Sous serment d'amitié" title={<>Dépositions <span className="italic text-blood">des témoins</span></>} />
+      <SectionHead dark={false} num="IV" tag={privateMode ? "Dossier privé — Jenny" : "Sous serment d'amitié"} title={<>Dépositions <span className="italic text-blood">{privateMode ? "privées" : "des témoins"}</span></>} />
       <Reveal className="mb-14 -mt-6 max-w-3xl md:-mt-8">
-        <p className="font-mono text-[12px] leading-relaxed text-ink/70">Les proches du sujet ont été entendus, un par un, avec du café et beaucoup de rires. Chaque témoin pouvait verser un message, une photo, une vidéo — ou les trois. Cliquez pour lire chaque déposition en entier. Le parjure est puni d'un câlin obligatoire.</p>
-        {extra.length > 0 && <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-blood">{extra.length} pièce{extra.length>1?"s":""} locale{extra.length>1?"s":""} chargée{extra.length>1?"s":""} — visible dans ce navigateur (mode démo).</p>}
+        <p className="font-mono text-[12px] leading-relaxed text-ink/70">
+          {privateMode ? "Ici, Jenny découvre les vraies dépositions approuvées — avec photos/vidéos via URLs signées (1h). Les pièces en attente peuvent être approuvées ici." : "Les proches du sujet ont été entendus, un par un, avec du café et beaucoup de rires. Chaque témoin pouvait verser un message, une photo, une vidéo — ou les trois. Cliquez pour lire chaque déposition en entier. Le parjure est puni d'un câlin obligatoire."}
+        </p>
+        {privateMode && isSupabaseConfigured && loadingPrivate && <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-ink/60">Chargement des pièces privées…</p>}
+        {privateMode && isSupabaseConfigured && !loadingPrivate && pending.length > 0 && <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-brass">{pending.length} en attente — approuve pour les rendre visibles à Jenny</p>}
+        {privateMode && isSupabaseConfigured && !loadingPrivate && approved.length > 0 && <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-blood">{approved.length} approuvée{approved.length>1?"s":""} — visible via signed URL</p>}
+        {!privateMode && extra.length > 0 && <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-blood">{extra.length} pièce{extra.length>1?"s":""} locale{extra.length>1?"s":""} chargée{extra.length>1?"s":""} — visible dans ce navigateur (mode démo).</p>}
       </Reveal>
-      <div className="grid gap-6 md:grid-cols-2 md:gap-7">{all.map((d, i) => <DepositionCard key={d.name + d.date + i} d={d} i={i} isNew={i < extra.length} />)}</div>
+      <div className="grid gap-6 md:grid-cols-2 md:gap-7">{all.map((d, i) => <DepositionCard key={(d.id ?? d.name) + d.date + i} d={d} i={i} isNew={privateMode ? (d.status === "pending" || i < pending.length) : i < extra.length} onApprove={privateMode ? handleApprove : undefined} />)}</div>
       <div className="mt-16 md:mt-20"><ContributeForm onAdd={handleAdd} /></div>
     </section>
   );
