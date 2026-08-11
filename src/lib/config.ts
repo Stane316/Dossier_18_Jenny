@@ -4,15 +4,37 @@
  * - Provides feature flags for Supabase availability
  */
 
+function clean(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function isHttpUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || (url.protocol === "http:" && url.hostname === "localhost");
+  } catch {
+    return false;
+  }
+}
+
+const supabaseUrl = clean(import.meta.env.VITE_SUPABASE_URL);
+// Prefer Supabase's current publishable key name, while retaining compatibility
+// with projects that still expose the legacy anon key variable.
+const supabaseKey =
+  clean(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) ??
+  clean(import.meta.env.VITE_SUPABASE_ANON_KEY);
+const configuredSiteUrl = clean(import.meta.env.VITE_SITE_URL);
+
 export const config = {
   supabase: {
-    url: import.meta.env.VITE_SUPABASE_URL as string | undefined,
-    anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
-    isConfigured: Boolean(
-      import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY
-    ),
+    url: supabaseUrl,
+    publishableKey: supabaseKey,
+    isConfigured: isHttpUrl(supabaseUrl) && Boolean(supabaseKey),
   },
-  siteUrl: (import.meta.env.VITE_SITE_URL as string | undefined) ?? window.location.origin,
+  siteUrl:
+    configuredSiteUrl ??
+    (typeof window !== "undefined" ? window.location.origin : ""),
   isDev: import.meta.env.DEV,
   isProd: import.meta.env.PROD,
 } as const;

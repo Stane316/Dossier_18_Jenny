@@ -1,2 +1,9 @@
-# Netlify SPA redirect — required for React Router BrowserRouter
+# Historical private-media paths must never resolve, even if a file is
+# accidentally reintroduced into a future deploy. These forced 404 rules must
+# remain before the SPA rewrite.
+/memories/*          /index.html   404!
+/images/memories/*   /index.html   404!
+/videos/memories/*   /index.html   404!
+
+# Netlify SPA redirect — required for React Router BrowserRouter.
 /*    /index.html   200

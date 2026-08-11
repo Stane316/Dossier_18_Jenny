@@ -2,8 +2,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config";
 
 /**
- * Supabase client — public anon key in the browser, service_role only in Edge Functions.
- * Jenny's Supabase Auth session is stored in sessionStorage and refreshed by supabase-js.
+ * Supabase client — public publishable/anon key in the browser; server secrets
+ * stay inside Edge Functions. Jenny's Auth session is kept in sessionStorage
+ * and refreshed by supabase-js.
  */
 let client: SupabaseClient | null = null;
 
@@ -11,19 +12,24 @@ export function getSupabase(): SupabaseClient | null {
   if (!config.supabase.isConfigured) return null;
   if (client) return client;
 
-  client = createClient(config.supabase.url!, config.supabase.anonKey!, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: false,
-      storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
-    },
-  });
+  try {
+    client = createClient(config.supabase.url!, config.supabase.publishableKey!, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
+      },
+    });
+  } catch {
+    // Fail closed if a malformed public URL/key reaches the production bundle.
+    client = null;
+  }
   return client;
 }
 
 export const supabase = getSupabase();
-export const isSupabaseConfigured = config.supabase.isConfigured;
+export const isSupabaseConfigured = config.supabase.isConfigured && Boolean(supabase);
 
 export type DbContributor = {
   id: string;

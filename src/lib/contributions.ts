@@ -71,15 +71,39 @@ function toDeposition(record: ContributionRecord): Deposition {
   };
 }
 
+async function contributionErrorMessage(
+  response: Response | undefined,
+  error: unknown
+): Promise<string> {
+  const context =
+    error && typeof error === "object" && "context" in error
+      ? (error as { context?: unknown }).context
+      : undefined;
+  const source = response ?? (context instanceof Response ? context : undefined);
+  if (!source) return "Le service de contribution est injoignable";
+
+  try {
+    const body = (await source.clone().json()) as { error?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) return body.error;
+  } catch {
+    // Fall through to a controlled status-based message.
+  }
+
+  if (source.status === 404) return "Le service de contribution n’est pas encore déployé";
+  if (source.status === 403) return "Ce site n’est pas autorisé à envoyer des contributions";
+  if (source.status === 429) return "Trop de tentatives — réessayez plus tard";
+  return "Le service de contribution est indisponible";
+}
+
 async function invokeContributionPipeline<T>(
   action: "create" | "finalize",
   payload: Record<string, unknown>
 ): Promise<T> {
   if (!isSupabaseConfigured || !supabase) throw new Error("Supabase non configuré");
-  const { data, error } = await supabase.functions.invoke(CONTRIBUTION_FUNCTION, {
+  const { data, error, response } = await supabase.functions.invoke(CONTRIBUTION_FUNCTION, {
     body: { action, ...payload },
   });
-  if (error) throw new Error("Le service de contribution est indisponible");
+  if (error) throw new Error(await contributionErrorMessage(response, error));
   return data as T;
 }
 

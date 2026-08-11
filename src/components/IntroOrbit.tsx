@@ -32,13 +32,17 @@ function useMemories(): OrbitItem[] {
     const load = async () => {
       const privatePhotos: OrbitItem[] = [];
 
-      // Contribution locale : privée au navigateur courant, jamais publiée sous public/.
-      const locals = loadLocalContributions().filter((r) => r.photoUrl);
-      locals.forEach((r, i) => {
-        if (r.photoUrl) {
-          privatePhotos.push({ id: `local-${i}-${r.id}`, src: r.photoUrl, alt: r.contributorName });
-        }
-      });
+      // Le mode local est strictement un fallback de démonstration. Des données
+      // résiduelles du navigateur ne doivent jamais entrer dans l'expérience de
+      // production dès que Supabase est configuré.
+      if (!isSupabaseConfigured) {
+        const locals = loadLocalContributions().filter((r) => r.photoUrl);
+        locals.forEach((r, i) => {
+          if (r.photoUrl) {
+            privatePhotos.push({ id: `local-${i}-${r.id}`, src: r.photoUrl, alt: r.contributorName });
+          }
+        });
+      }
 
       // Contributions approuvées : URLs signées du bucket Supabase privé.
       if (isSupabaseConfigured) {
