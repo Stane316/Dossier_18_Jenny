@@ -252,6 +252,18 @@ export const LETTER_SIGNATURE = "— Ceux qui t'aiment, sous serment.";
 export const CLOSING_LINE =
   "18 ans n'est que le numéro de la première pièce du prochain dossier.";
 
+/* ── MÉMOIRES — orbit intro E.1 ── */
+// Fallback si public/images/memories est vide — puis remplacé par tes vrais souvenirs + Supabase approved
+export const MEMORIES_FALLBACK: string[] = [
+  "/images/piece-chaton.jpg",
+  "/images/piece-lapin.jpg",
+  "/images/piece-carnets.jpg",
+  "/images/piece-cinema.jpg",
+  "/images/piece-bac.jpg",
+  "/images/emblem-cat.jpg",
+  "/images/papillon-or.jpg",
+];
+
 /* ── ANNEXE — système visuel (source de vérité pour l'implémentation) ── */
 export const TOKEN_COLORS = [
   { name: "ENCRE", hex: "#0C0709", usage: "Fond général — noir chaud, jamais pur" },

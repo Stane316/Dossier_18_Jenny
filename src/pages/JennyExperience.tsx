@@ -7,6 +7,7 @@ import Depositions from "../components/Depositions";
 import Screening from "../components/Screening";
 import Verdict from "../components/Verdict";
 import Archive from "../components/Archive";
+import IntroOrbit from "../components/IntroOrbit";
 import { isJennyAuthenticated } from "../lib/auth";
 
 /**
@@ -29,6 +30,7 @@ export default function JennyExperience() {
 
   return (
     <>
+      <IntroOrbit />
       <Cover />
       <Report />
       <Evidence />
