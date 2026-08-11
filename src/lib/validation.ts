@@ -80,3 +80,29 @@ export function canSubmit(input: {
   const hasVideo = Boolean(input.video);
   return hasMessage || hasPhoto || hasVideo;
 }
+
+/** Helpers for field-level instant feedback (C.2) */
+export function validatePhotoFile(file: File | null): string | null {
+  if (!file) return null;
+  if (file.size > LIMITS.photoMaxBytes) return `Photo trop lourde — ${(file.size / 1048576).toFixed(1)} Mo (max ${LIMITS.photoMaxBytes / 1048576} Mo)`;
+  if (!(LIMITS.photoAccept as readonly string[]).includes(file.type) && !file.type.startsWith("image/"))
+    return `Format photo non supporté (${file.type || "inconnu"}) — JPEG, PNG, WebP attendus`;
+  return null;
+}
+
+export function validateVideoFile(file: File | null): string | null {
+  if (!file) return null;
+  if (file.size > LIMITS.videoMaxBytes) return `Vidéo trop lourde — ${(file.size / 1048576).toFixed(1)} Mo (max ${LIMITS.videoMaxBytes / 1048576} Mo)`;
+  if (!(LIMITS.videoAccept as readonly string[]).includes(file.type) && !file.type.startsWith("video/"))
+    return `Format vidéo non supporté (${file.type || "inconnu"}) — MP4, MOV, WebM attendus`;
+  return null;
+}
+
+export function getFieldErrors(err: z.ZodError): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const issue of err.issues) {
+    const key = String(issue.path[0] ?? "global");
+    if (!map[key]) map[key] = issue.message;
+  }
+  return map;
+}
