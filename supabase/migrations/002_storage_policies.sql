@@ -7,11 +7,14 @@ insert into storage.buckets (id, name, public)
 values ('birthday-media', 'birthday-media', false)
 on conflict (id) do update set public = false;
 
--- Clean existing policies if re-run
+-- Clean every policy managed by this migration so Dashboard re-runs are idempotent.
 drop policy if exists "Allow anon upload birthday-media" on storage.objects;
 drop policy if exists "Allow authenticated read birthday-media" on storage.objects;
+drop policy if exists "Allow authenticated read approved" on storage.objects;
 drop policy if exists "Allow service_role read birthday-media" on storage.objects;
+drop policy if exists "Allow service_role delete birthday-media" on storage.objects;
 drop policy if exists "Allow anon read birthday-media" on storage.objects;
+drop policy if exists "Block anon read birthday-media" on storage.objects;
 
 -- 1. Allow anon to INSERT into birthday-media/contributions/* (for /participate)
 create policy "Allow anon upload birthday-media"
