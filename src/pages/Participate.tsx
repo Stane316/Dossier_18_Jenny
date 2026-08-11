@@ -8,9 +8,9 @@ import { Reveal } from "../hooks";
 import { Stamp } from "../components/Chrome";
 import { PawIcon, ReelIcon } from "../components/icons";
 import { validateContribution, canSubmit, validatePhotoFile, validateVideoFile, getFieldErrors } from "../lib/validation";
-import { createPreviewUrl, revokePreviewUrl, saveLocalContribution } from "../lib/storage";
+import { createPreviewUrl, revokePreviewUrl, saveLocalContribution, uploadContributionMedia } from "../lib/storage";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
-import { buildStoragePath, extFromMime } from "../lib/storage";
+import { createPendingContribution } from "../lib/contributions";
 import { ZodError } from "zod";
 import type { UploadState } from "../types";
 
@@ -122,32 +122,20 @@ export default function Participate() {
     try {
       setUploadState("uploading");
       setProgress(10);
-      const { data: contributor, error: cErr } = await supabase.from("contributors").insert({ name: name.trim() || "Témoin anonyme", link: null }).select().single();
-      if (cErr) throw new Error(cErr.message);
+      const { contributionId } = await createPendingContribution({ name: name.trim() || "Témoin anonyme", message: msg.trim() || null });
       setProgress(30);
-      const { data: contribution, error: contribErr } = await supabase.from("contributions").insert({ contributor_id: contributor.id, message: msg.trim() || null, status: "pending" }).select().single();
-      if (contribErr) throw new Error(contribErr.message);
-      setProgress(50);
-      if (photo) {
-        const assetId = crypto.randomUUID();
-        const path = buildStoragePath(contribution.id, assetId, "photo", extFromMime(photo.type));
-        const { error: upErr } = await supabase.storage.from("birthday-media").upload(path, photo, { contentType: photo.type, upsert: false });
-        if (upErr) throw new Error(`Photo: ${upErr.message}`);
-        await supabase.from("media_assets").insert({ id: assetId, contribution_id: contribution.id, type: "photo", storage_path: path, mime_type: photo.type, size_bytes: photo.size });
-      }
-      setProgress(75);
-      if (video) {
-        const assetId = crypto.randomUUID();
-        const path = buildStoragePath(contribution.id, assetId, "video", extFromMime(video.type));
-        const { error: upErr } = await supabase.storage.from("birthday-media").upload(path, video, { contentType: video.type, upsert: false });
-        if (upErr) throw new Error(`Vidéo: ${upErr.message}`);
-        await supabase.from("media_assets").insert({ id: assetId, contribution_id: contribution.id, type: "video", storage_path: path, mime_type: video.type, size_bytes: video.size });
+      // D.1: real bucket upload with granular progress 50→90% via uploadContributionMedia
+      const media = await uploadContributionMedia(contributionId, photo, video, (pct) => setProgress(pct));
+      // Insert media_assets rows for each uploaded file (pending → approved flow)
+      for (const m of media) {
+        const { error: mErr } = await supabase.from("media_assets").insert({ id: m.id, contribution_id: contributionId, type: m.type, storage_path: m.path, mime_type: m.mime, size_bytes: m.size });
+        if (mErr) throw new Error(`Media: ${mErr.message}`);
       }
       setProgress(90);
       setUploadState("processing");
       await new Promise((r) => setTimeout(r, 300));
       setProgress(100);
-      saveLocalContribution({ id: contribution.id, contributorName: name.trim() || "Témoin anonyme", message: msg.trim() || undefined, photoUrl: photoDataUrl ?? photoUrl ?? undefined, videoLabel: video ? `Vidéo jointe — ${(video.size / 1048576).toFixed(1)} Mo` : undefined, createdAt: new Date().toISOString(), status: "pending" });
+      saveLocalContribution({ id: contributionId, contributorName: name.trim() || "Témoin anonyme", message: msg.trim() || undefined, photoUrl: photoDataUrl ?? photoUrl ?? undefined, videoLabel: video ? `Vidéo jointe — ${(video.size / 1048576).toFixed(1)} Mo` : undefined, createdAt: new Date().toISOString(), status: "pending" });
       setUploadState("success");
       await new Promise((r) => setTimeout(r, 250));
       nav("/thanks", { state: { supabase: true } });
