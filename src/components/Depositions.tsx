@@ -7,6 +7,7 @@ import { getAllPublicDepositions } from "../lib/contributions";
 import { saveLocalContribution } from "../lib/storage";
 import { validateContribution, validatePhotoFile, validateVideoFile, getFieldErrors } from "../lib/validation";
 import { ZodError } from "zod";
+import type { UploadState } from "../types";
 
 function DepositionCard({ d, i, isNew = false }: { d: Deposition; i: number; isNew?: boolean }) {
   const [open, setOpen] = useState(isNew);
@@ -59,6 +60,7 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [shakeKey, setShakeKey] = useState(0);
+  const [uploadState, setUploadState] = useState<UploadState>("idle");
   const [success, setSuccess] = useState(false);
 
   const photoInstantError = validatePhotoFile(photo);
@@ -66,6 +68,15 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
   const nameLenError = name.length > 80 ? "Nom trop long (80 max)" : null;
   const msgLen = msg.length;
   const msgCountColor = msgLen > 2000 ? "text-ember" : msgLen > 1800 ? "text-brass" : "text-bone/50";
+  const isBusy = uploadState === "validating" || uploadState === "processing";
+  const stateLabel: Record<UploadState, string> = {
+    idle: "Prêt à verser",
+    validating: "Validation en cours…",
+    uploading: "Versement…",
+    processing: "Traitement…",
+    success: "Versé — prêt",
+    error: "Échec — à réessayer",
+  };
 
   const clearFieldError = (field: string) => setFieldErrors((prev) => { const n = { ...prev }; delete n[field]; return n; });
 
@@ -95,10 +106,11 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
     }
   };
 
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
+  const doSubmit = async () => {
     setGlobalError(null);
     setFieldErrors({});
+    setUploadState("validating");
+    await new Promise((r) => setTimeout(r, 150));
     try {
       validateContribution({ name, message: msg, photo, video });
     } catch (err) {
@@ -108,6 +120,7 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
         if (global) setGlobalError(global);
         setFieldErrors(map);
         setShakeKey((k) => k + 1);
+        setUploadState("error");
         return;
       }
       throw err;
@@ -115,8 +128,11 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
     if (photoInstantError || videoInstantError || nameLenError) {
       setGlobalError("Corrige les erreurs indiquées avant d'envoyer.");
       setShakeKey((k) => k + 1);
+      setUploadState("error");
       return;
     }
+    setUploadState("processing");
+    await new Promise((r) => setTimeout(r, 200));
     const firstLine = msg.trim().split(/\n/)[0] ?? "";
     const dep: Deposition = {
       name: name.trim() || "Témoin anonyme",
@@ -133,7 +149,21 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
     if (photoUrl) URL.revokeObjectURL(photoUrl);
     setPhotoUrl(null); setPhotoDataUrl(null);
     setGlobalError(null); setSuccess(true);
+    setUploadState("success");
+    await new Promise((r) => setTimeout(r, 400));
+    setUploadState("idle");
     window.setTimeout(() => setSuccess(false), 7000);
+  };
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (uploadState === "validating" || uploadState === "processing") return;
+    await doSubmit();
+  };
+
+  const handleRetry = async () => {
+    setGlobalError(null);
+    await doSubmit();
   };
 
   const inputBase = "w-full border bg-transparent px-3.5 py-3 font-mono text-[13px] text-bone placeholder:text-bone/35 transition-colors focus:outline-none";
@@ -150,7 +180,7 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
         <div className="grid gap-5 md:grid-cols-2">
           <div>
             <label htmlFor="dep-name" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.24em] text-fog">Votre nom <span className="text-bone/40">(ou alias)</span></label>
-            <input id="dep-name" type="text" value={name} onChange={(e) => { setName(e.target.value); clearFieldError("name"); }} placeholder="Ex. : la voisine du chaton" aria-invalid={Boolean(fieldErrors.name || nameLenError)} className={`${inputBase} ${fieldErrors.name || nameLenError ? inputErr : inputOk}`} autoComplete="name" maxLength={80} />
+            <input id="dep-name" type="text" value={name} onChange={(e) => { setName(e.target.value); clearFieldError("name"); }} placeholder="Ex. : la voisine du chaton" aria-invalid={Boolean(fieldErrors.name || nameLenError)} className={`${inputBase} ${fieldErrors.name || nameLenError ? inputErr : inputOk}`} autoComplete="name" maxLength={80} disabled={isBusy} />
             {(fieldErrors.name || nameLenError) && <p role="alert" className="mt-2 font-mono text-[11px] text-ember">{fieldErrors.name ?? nameLenError}</p>}
             <p className="mt-1 text-right font-mono text-[9px] tracking-[0.14em] text-fog">{name.length} / 80</p>
           </div>
@@ -159,7 +189,7 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
             <div>
               <label htmlFor="dep-photo" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.24em] text-fog">Photo <span className="text-bone/40">(max 10 Mo)</span></label>
               <label htmlFor="dep-photo" className={`flex h-[46px] cursor-pointer items-center justify-center border border-dashed px-2 text-center font-mono text-[10px] uppercase tracking-[0.16em] transition-colors ${fieldErrors.photo || photoInstantError ? "border-blood text-ember bg-blood/10" : "border-bone/35 text-bone/60 hover:border-ember hover:text-ember"}`}>{photo ? photo.name.slice(0, 18) : "Joindre une photo"}</label>
-              <input id="dep-photo" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" className="sr-only" onChange={(e) => handlePhoto(e.target.files?.[0] ?? null)} aria-invalid={Boolean(fieldErrors.photo || photoInstantError)} />
+              <input id="dep-photo" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" className="sr-only" disabled={isBusy} onChange={(e) => handlePhoto(e.target.files?.[0] ?? null)} aria-invalid={Boolean(fieldErrors.photo || photoInstantError)} />
               {(fieldErrors.photo || photoInstantError) && <p role="alert" className="mt-2 font-mono text-[11px] leading-snug text-ember">{fieldErrors.photo ?? photoInstantError}</p>}
               {photo && !photoInstantError && !fieldErrors.photo && (
                 <div className="mt-2 flex items-center justify-between gap-2 border border-bone/20 bg-ink/40 px-2 py-1">
@@ -178,7 +208,7 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
             <div>
               <label htmlFor="dep-video" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.24em] text-fog">Vidéo <span className="text-bone/40">(max 100 Mo)</span></label>
               <label htmlFor="dep-video" className={`flex h-[46px] cursor-pointer items-center justify-center border border-dashed px-2 text-center font-mono text-[10px] uppercase tracking-[0.16em] transition-colors ${fieldErrors.video || videoInstantError ? "border-blood text-ember bg-blood/10" : "border-bone/35 text-bone/60 hover:border-ember hover:text-ember"}`}>{video ? video.name.slice(0, 18) : "Joindre une vidéo"}</label>
-              <input id="dep-video" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v" className="sr-only" onChange={(e) => handleVideo(e.target.files?.[0] ?? null)} aria-invalid={Boolean(fieldErrors.video || videoInstantError)} />
+              <input id="dep-video" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v" className="sr-only" disabled={isBusy} onChange={(e) => handleVideo(e.target.files?.[0] ?? null)} aria-invalid={Boolean(fieldErrors.video || videoInstantError)} />
               {(fieldErrors.video || videoInstantError) && <p role="alert" className="mt-2 font-mono text-[11px] leading-snug text-ember">{fieldErrors.video ?? videoInstantError}</p>}
               {video && !videoInstantError && !fieldErrors.video && (
                 <div className="mt-2 flex items-center justify-between gap-2 border border-bone/20 bg-ink/40 px-2 py-1">
@@ -192,17 +222,34 @@ function ContributeForm({ onAdd }: { onAdd: (d: Deposition) => void }) {
 
         <div>
           <label htmlFor="dep-msg" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.24em] text-fog">Votre message pour Jenny <span className="text-bone/40">(optionnel si photo/vidéo)</span></label>
-          <textarea id="dep-msg" rows={4} value={msg} onChange={(e) => { setMsg(e.target.value); clearFieldError("message"); }} placeholder="Racontez un souvenir, une preuve, un aveu. Le dossier garde tout." aria-invalid={Boolean(fieldErrors.message)} className={`${inputBase} resize-none ${fieldErrors.message ? inputErr : inputOk}`} maxLength={2000} />
+          <textarea id="dep-msg" rows={4} value={msg} onChange={(e) => { setMsg(e.target.value); clearFieldError("message"); }} placeholder="Racontez un souvenir, une preuve, un aveu. Le dossier garde tout." aria-invalid={Boolean(fieldErrors.message)} className={`${inputBase} resize-none ${fieldErrors.message ? inputErr : inputOk}`} maxLength={2000} disabled={isBusy} />
           <div className="mt-1 flex items-center justify-between"><span className="font-mono text-[11px] text-ember" role={fieldErrors.message ? "alert" : undefined}>{fieldErrors.message ?? ""}</span><span className={`font-mono text-[9px] uppercase tracking-[0.14em] ${msgCountColor}`}>{msgLen} / 2000 {msgLen > 1800 && msgLen <= 2000 ? "— presque plein" : ""}</span></div>
         </div>
 
+        {uploadState !== "idle" && (
+          <div className={`border p-3 ${uploadState === "error" ? "border-blood bg-blood/10" : "border-ember/30 bg-coal/50"}`} role="status" aria-live="polite">
+            <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.18em]">
+              <span className={uploadState === "error" ? "text-ember" : "text-fog"}>{stateLabel[uploadState]}</span>
+              {uploadState === "success" && <span className="text-brass">✓</span>}
+            </div>
+            {uploadState === "error" && globalError && (
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <p className="font-mono text-[11px] leading-snug text-ember">{globalError}</p>
+                <button type="button" onClick={handleRetry} className="border border-ember/50 bg-blood/15 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-ember hover:bg-blood hover:text-parch">Réessayer</button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-5">
-          <button type="submit" disabled={Boolean(photoInstantError || videoInstantError)} className="btn-stamp border border-ember/60 bg-blood px-7 py-4 font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-parch disabled:cursor-not-allowed disabled:opacity-50">Verser la pièce au dossier</button>
+          <button type="submit" disabled={isBusy || Boolean(photoInstantError || videoInstantError)} className="btn-stamp border border-ember/60 bg-blood px-7 py-4 font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-parch disabled:cursor-not-allowed disabled:opacity-50">
+            {uploadState === "validating" ? "Validation…" : uploadState === "processing" ? "Traitement…" : uploadState === "success" ? "Versé ✓" : "Verser la pièce au dossier"}
+          </button>
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fog">Règle du greffe : message <span className="text-ember">ou</span> photo <span className="text-ember">ou</span> vidéo — jamais rien.</p>
         </div>
 
-        {globalError && <p key={shakeKey} role="alert" className="deny-shake border-l-2 border-blood pl-4 font-mono text-[11px] uppercase tracking-[0.14em] text-ember">{globalError}</p>}
-        {success && <p role="status" className="border-l-2 border-brass pl-4 font-mono text-[11px] uppercase tracking-[0.14em] text-brass">Pièce versée — merci, témoin. Votre déposition apparaît ci-dessus et sera visible pour Jenny.</p>}
+        {uploadState === "error" && globalError && <p key={shakeKey} role="alert" className="deny-shake border-l-2 border-blood pl-4 font-mono text-[11px] uppercase tracking-[0.14em] text-ember">{globalError}</p>}
+        {success && uploadState !== "error" && <p role="status" className="border-l-2 border-brass pl-4 font-mono text-[11px] uppercase tracking-[0.14em] text-brass">Pièce versée — merci, témoin. Votre déposition apparaît ci-dessus et sera visible pour Jenny.</p>}
       </form>
     </div>
   );
