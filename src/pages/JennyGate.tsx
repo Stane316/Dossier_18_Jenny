@@ -3,11 +3,26 @@ import { useNavigate } from "react-router-dom";
 import { Stamp } from "../components/Chrome";
 import { Reveal } from "../hooks";
 import { usePrivateRouteMeta } from "../hooks/usePrivateRouteMeta";
-import { authenticateJenny, verifyJennySession } from "../lib/auth";
+import {
+  authenticateJenny,
+  verifyJennySession,
+  type JennyAuthFailureReason,
+} from "../lib/auth";
 
-type GateError = "denied" | "unavailable" | null;
+type GateError = JennyAuthFailureReason | null;
 
 const PROMISES = ["Des souvenirs", "Des voix", "Quelques surprises"];
+
+const ERROR_MESSAGES: Record<JennyAuthFailureReason, string> = {
+  denied:
+    "Ce n’est pas la bonne combinaison. Vérifie doucement l’adresse et le mot de passe.",
+  unconfirmed:
+    "L’adresse est reconnue, mais le compte Supabase doit encore être confirmé avant d’ouvrir le dossier.",
+  configuration:
+    "Tes identifiants ont été acceptés, mais la porte privée n’est pas correctement reliée au service. Préviens la personne qui t’a transmis l’accès.",
+  unavailable:
+    "La porte ne répond pas pour le moment. Vérifie la connexion puis réessaie dans un petit instant.",
+};
 
 export default function JennyGate() {
   const nav = useNavigate();
@@ -174,9 +189,7 @@ export default function JennyGate() {
                         role="alert"
                         className="deny-shake border-l-2 border-blood bg-blood/5 px-4 py-3 font-mono text-[10px] leading-relaxed tracking-[0.08em] text-ember"
                       >
-                        {error === "denied"
-                          ? "Ce n’est pas la bonne combinaison. Vérifie doucement l’adresse et le mot de passe."
-                          : "La porte ne répond pas pour le moment. Réessaie dans un petit instant."}
+{ERROR_MESSAGES[error]}
                       </p>
                     )}
                   </div>
