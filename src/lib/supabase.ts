@@ -3,8 +3,8 @@ import { config } from "./config";
 
 /**
  * Supabase client — public publishable/anon key in the browser; server secrets
- * stay inside Edge Functions. Jenny's Auth session is kept in sessionStorage
- * and refreshed by supabase-js.
+ * stay inside Edge Functions. Supabase remains the data/storage transport for
+ * contributions; the temporary Jenny entry gate is implemented separately.
  */
 let client: SupabaseClient | null = null;
 

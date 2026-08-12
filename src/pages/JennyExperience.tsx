@@ -11,7 +11,7 @@ import IntroOrbit from "../components/IntroOrbit";
 import { clearJennySession, verifyJennySession } from "../lib/auth";
 import { usePrivateRouteMeta } from "../hooks/usePrivateRouteMeta";
 
-/** /jenny/experience — private experience protected by Jenny's Supabase Auth session. */
+/** /jenny/experience — protected by the temporary per-tab Jenny client gate. */
 export default function JennyExperience() {
   const nav = useNavigate();
   const [authorized, setAuthorized] = useState(false);
@@ -38,7 +38,7 @@ export default function JennyExperience() {
     return (
       <section className="flex min-h-[65vh] items-center justify-center px-5 py-24">
         <p role="status" className="font-mono text-[10px] uppercase tracking-[0.24em] text-fog">
-          Vérification Supabase Auth…
+          Vérification de l’accès Jenny…
         </p>
       </section>
     );

@@ -16,12 +16,10 @@ const PROMISES = ["Des souvenirs", "Des voix", "Quelques surprises"];
 const ERROR_MESSAGES: Record<JennyAuthFailureReason, string> = {
   denied:
     "Ce n’est pas la bonne combinaison. Vérifie doucement l’adresse et le mot de passe.",
-  unconfirmed:
-    "L’adresse est reconnue, mais le compte Supabase doit encore être confirmé avant d’ouvrir le dossier.",
   configuration:
-    "Tes identifiants ont été acceptés, mais la porte privée n’est pas correctement reliée au service. Préviens la personne qui t’a transmis l’accès.",
+    "La porte privée n’a pas encore reçu ses identifiants. Préviens la personne qui t’a transmis l’accès.",
   unavailable:
-    "La porte ne répond pas pour le moment. Vérifie la connexion puis réessaie dans un petit instant.",
+    "Cette page ne peut pas conserver la session dans ce navigateur. Vérifie ses réglages puis réessaie.",
 };
 
 export default function JennyGate() {
@@ -122,7 +120,7 @@ export default function JennyGate() {
                   Entre, c’est chez toi.
                 </h2>
                 <p id="jenny-login-help" className="mt-4 max-w-md font-mono text-[11px] leading-6 text-bone/58">
-                  Utilise l’adresse et le mot de passe qui ont été préparés pour toi. Personne d’autre ne peut ouvrir ce dossier.
+                  Utilise l’adresse et le mot de passe qui ont été préparés pour toi. Cet accès est destiné à Jenny.
                 </p>
 
                 <form onSubmit={submit} className="mt-8 grid gap-5" aria-busy={busy} aria-describedby="jenny-login-help">
@@ -196,7 +194,7 @@ export default function JennyGate() {
                 </form>
 
                 <p className="mt-6 border-t border-bone/10 pt-5 font-mono text-[9px] leading-5 text-fog/55">
-                  Ton accès reste personnel et confidentiel. Le mot de passe n’est jamais conservé par cette page.
+                  Ton accès reste personnel. Le mot de passe n’est pas enregistré dans la session de ce navigateur.
                 </p>
               </div>
             </div>

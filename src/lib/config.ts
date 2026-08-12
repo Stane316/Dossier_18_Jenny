@@ -1,7 +1,7 @@
 /**
  * Centralized environment & app config
- * - Exposes only VITE_ vars (safe for client)
- * - Provides feature flags for Supabase availability
+ * - Exposes browser build variables (never use server secrets here)
+ * - Provides feature flags for Supabase and the temporary Jenny gate
  */
 
 function clean(value: unknown): string | undefined {
@@ -25,12 +25,25 @@ const supabaseKey =
   clean(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) ??
   clean(import.meta.env.VITE_SUPABASE_ANON_KEY);
 const configuredSiteUrl = clean(import.meta.env.VITE_SITE_URL);
+const jennyGateEmail = clean(import.meta.env.EMAIL_JENNY)?.toLowerCase();
+// Do not trim or transform the password: it must be compared exactly.
+const jennyGatePassword =
+  typeof import.meta.env.PASSWORD_JENNY === "string" &&
+  import.meta.env.PASSWORD_JENNY.length > 0
+    ? import.meta.env.PASSWORD_JENNY
+    : undefined;
 
 export const config = {
   supabase: {
     url: supabaseUrl,
     publishableKey: supabaseKey,
     isConfigured: isHttpUrl(supabaseUrl) && Boolean(supabaseKey),
+  },
+  // TEMPORARY AND NON-SECURE: these values are embedded in the client bundle.
+  jennyGate: {
+    email: jennyGateEmail,
+    password: jennyGatePassword,
+    isConfigured: Boolean(jennyGateEmail && jennyGatePassword),
   },
   siteUrl:
     configuredSiteUrl ??

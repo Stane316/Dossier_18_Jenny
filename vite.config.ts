@@ -76,6 +76,9 @@ function publicMemoriesPlugin(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
+  // EMAIL_JENNY/PASSWORD_JENNY are intentionally exposed only for the temporary
+  // birthday gate. They are recoverable from the generated browser bundle.
+  envPrefix: ["VITE_", "EMAIL_JENNY", "PASSWORD_JENNY"],
   plugins: [publicMemoriesPlugin(), react(), tailwindcss(), viteSingleFile()],
   resolve: {
     alias: {

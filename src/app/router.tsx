@@ -12,8 +12,8 @@ import NotFound from "../pages/NotFound";
  * /                 → Landing (dossier teaser)
  * /participate      → Contributor form (isolated)
  * /thanks           → Success confirmation
- * /jenny            → Supabase Auth email/password gate
- * /jenny/experience → Full Jenny experience (Jenny Auth session required)
+ * /jenny            → Temporary client-side email/password gate
+ * /jenny/experience → Full Jenny experience (temporary per-tab gate required)
  * /jenny/memories   → (alias to experience for now, Phase E will expand)
  */
 export const router = createBrowserRouter([
