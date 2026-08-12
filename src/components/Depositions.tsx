@@ -7,7 +7,7 @@ import { ReelIcon } from "./icons";
 import { getAllPublicDepositions, fetchApprovedDepositions, fetchPendingDepositions, approveContribution } from "../lib/contributions";
 import { isSupabaseConfigured } from "../lib/supabase";
 
-function DepositionCard({ d, i, isNew = false, onApprove }: { d: Deposition; i: number; isNew?: boolean; onApprove?: (id: string) => void }) {
+function DepositionCard({ d, i, isNew = false, approving = false, approvalBusy = false, onApprove }: { d: Deposition; i: number; isNew?: boolean; approving?: boolean; approvalBusy?: boolean; onApprove?: (id: string) => void }) {
   const [open, setOpen] = useState(isNew);
   const isPending = d.status === "pending";
   return (
@@ -39,7 +39,7 @@ function DepositionCard({ d, i, isNew = false, onApprove }: { d: Deposition; i: 
           </span>
         ) : null}
         {isPending && d.id && onApprove && (
-          <button type="button" onClick={() => onApprove(d.id!)} className="ml-auto border border-brass bg-brass px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink hover:bg-amber-600">Approuver</button>
+          <button type="button" onClick={() => onApprove(d.id!)} disabled={approvalBusy} className="ml-auto border border-brass bg-brass px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink hover:bg-amber-600 disabled:cursor-wait disabled:opacity-60">{approving ? "Approbation…" : "Approuver"}</button>
         )}
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="ml-auto font-mono text-[10px] uppercase tracking-[0.18em] text-blood underline decoration-blood/50 underline-offset-4 transition-colors hover:text-ink">
           {open ? "Réduire la déposition" : "Lire la déposition complète"}
@@ -84,6 +84,8 @@ export default function Depositions({ privateMode = false }: { privateMode?: boo
   const [approved, setApproved] = useState<Deposition[]>([]);
   const [pending, setPending] = useState<Deposition[]>([]);
   const [loadingPrivate, setLoadingPrivate] = useState(false);
+  const [privateError, setPrivateError] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
 
   useEffect(() => {
     const persisted = getAllPublicDepositions();
@@ -93,14 +95,31 @@ export default function Depositions({ privateMode = false }: { privateMode?: boo
   }, []);
 
   useEffect(() => {
-    if (!privateMode || !isSupabaseConfigured) return;
+    if (!privateMode) {
+      setPrivateError(null);
+      return;
+    }
+    if (!isSupabaseConfigured) {
+      setPrivateError(
+        "Le pont des contributions privées n’est pas configuré. Vérifie l’URL et la clé publique Supabase dans Netlify."
+      );
+      return;
+    }
     let cancelled = false;
     setLoadingPrivate(true);
+    setPrivateError(null);
     Promise.all([fetchApprovedDepositions(), fetchPendingDepositions()])
       .then(([appr, pend]) => {
         if (!cancelled) {
           setApproved(appr);
           setPending(pend);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPrivateError(
+            "Les contributions privées ne peuvent pas être chargées. Vérifie le pont temporaire Supabase puis réessaie."
+          );
         }
       })
       .finally(() => {
@@ -110,6 +129,9 @@ export default function Depositions({ privateMode = false }: { privateMode?: boo
   }, [privateMode]);
 
   const handleApprove = async (id: string) => {
+    if (approvingId) return;
+    setApprovingId(id);
+    setPrivateError(null);
     try {
       await approveContribution(id);
       const item = pending.find((p) => p.id === id);
@@ -117,9 +139,12 @@ export default function Depositions({ privateMode = false }: { privateMode?: boo
         setPending((prev) => prev.filter((p) => p.id !== id));
         setApproved((prev) => [{ ...item, status: "approved", link: "Contribution approuvée — dossier privé" }, ...prev]);
       }
-    } catch (e) {
-      console.error(e);
-      alert("Échec approbation — la session privée ou le service est indisponible");
+    } catch {
+      setPrivateError(
+        "L’approbation a échoué. L’accès temporaire aux données ou le service Supabase est indisponible."
+      );
+    } finally {
+      setApprovingId(null);
     }
   };
 
@@ -134,11 +159,12 @@ export default function Depositions({ privateMode = false }: { privateMode?: boo
           {privateMode ? "Ici, Jenny découvre les vraies dépositions approuvées — avec photos/vidéos via URLs signées temporaires. Les pièces en attente peuvent être approuvées ici." : "Les proches du sujet ont été entendus, un par un, avec du café et beaucoup de rires. Chaque témoin pouvait verser un message, une photo, une vidéo — ou les trois. Cliquez pour lire chaque déposition en entier. Le parjure est puni d'un câlin obligatoire."}
         </p>
         {privateMode && isSupabaseConfigured && loadingPrivate && <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-ink/60">Chargement des pièces privées…</p>}
+        {privateMode && privateError && <p role="alert" className="mt-3 border-l-2 border-blood pl-3 font-mono text-[10px] leading-relaxed tracking-[0.08em] text-blood">{privateError}</p>}
         {privateMode && isSupabaseConfigured && !loadingPrivate && pending.length > 0 && <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-brass">{pending.length} en attente — approuve pour les rendre visibles à Jenny</p>}
-        {privateMode && isSupabaseConfigured && !loadingPrivate && approved.length > 0 && <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-blood">{approved.length} approuvée{approved.length>1?"s":""} — visible via signed URL</p>}
+        {privateMode && isSupabaseConfigured && !loadingPrivate && approved.length > 0 && <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-blood">{approved.length} approuvée{approved.length>1?"s":""} — chargée{approved.length>1?"s":""} depuis le dossier privé</p>}
         {!privateMode && extra.length > 0 && <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-blood">{extra.length} pièce{extra.length>1?"s":""} locale{extra.length>1?"s":""} chargée{extra.length>1?"s":""} — visible dans ce navigateur (mode démo).</p>}
       </Reveal>
-      <div className="grid gap-6 md:grid-cols-2 md:gap-7">{all.map((d, i) => <DepositionCard key={(d.id ?? d.name) + d.date + i} d={d} i={i} isNew={privateMode ? (d.status === "pending" || i < pending.length) : i < extra.length} onApprove={privateMode ? handleApprove : undefined} />)}</div>
+      <div className="grid gap-6 md:grid-cols-2 md:gap-7">{all.map((d, i) => <DepositionCard key={(d.id ?? d.name) + d.date + i} d={d} i={i} isNew={privateMode ? (d.status === "pending" || i < pending.length) : i < extra.length} approving={Boolean(d.id && d.id === approvingId)} approvalBusy={Boolean(approvingId)} onApprove={privateMode ? handleApprove : undefined} />)}</div>
       <div className="mt-16 md:mt-20"><ContributionCta /></div>
     </section>
   );

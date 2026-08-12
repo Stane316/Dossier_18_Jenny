@@ -15,10 +15,10 @@ export function getSupabase(): SupabaseClient | null {
   try {
     client = createClient(config.supabase.url!, config.supabase.publishableKey!, {
       auth: {
-        persistSession: true,
-        autoRefreshToken: true,
+        // Supabase Auth is intentionally not part of the temporary birthday flow.
+        persistSession: false,
+        autoRefreshToken: false,
         detectSessionInUrl: false,
-        storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
       },
     });
   } catch {

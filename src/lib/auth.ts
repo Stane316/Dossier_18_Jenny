@@ -1,5 +1,4 @@
 import { config } from "./config";
-import { isSupabaseConfigured, supabase } from "./supabase";
 
 const ACCESS_FUNCTION = "jenny-access";
 const TEMPORARY_GATE_SESSION_KEY = "jenny-temporary-gate-v1";
@@ -25,7 +24,7 @@ class JennyAccessRequestError extends Error {
     readonly reason: JennyAuthFailureReason,
     readonly status?: number
   ) {
-    super("Jenny private access request failed");
+    super("Jenny private data request failed");
     this.name = "JennyAccessRequestError";
   }
 }
@@ -89,58 +88,20 @@ function hasValidTemporaryGateSession(): boolean {
   }
 }
 
-async function safeLocalSupabaseSignOut(): Promise<void> {
-  if (!supabase) return;
-  try {
-    await supabase.auth.signOut({ scope: "local" });
-  } catch {
-    // Supabase Auth is not required by the temporary local gate.
-  }
-}
-
-async function accessToken(): Promise<string | null> {
-  if (!isSupabaseConfigured || !supabase) return null;
-  const { data, error } = await supabase.auth.getSession();
-  if (error || !data.session?.access_token) return null;
-  return data.session.access_token;
-}
-
-async function functionErrorDetails(
-  response: Response | undefined,
-  error: unknown
-): Promise<{ status?: number; code?: string }> {
-  const context =
-    error && typeof error === "object" && "context" in error
-      ? (error as { context?: unknown }).context
-      : undefined;
-  const source = response ?? (context instanceof Response ? context : undefined);
-  if (!source) return {};
-
-  let code: string | undefined;
-  try {
-    const body = (await source.clone().json()) as { code?: unknown };
-    if (typeof body.code === "string") code = body.code;
-  } catch {
-    // A gateway or network proxy can return a non-JSON body.
-  }
-  return { status: source.status, code };
-}
-
 function classifyAccessFailure(status?: number, code?: string): JennyAuthFailureReason {
   if (
     code === "ORIGIN_NOT_ALLOWED" ||
     code === "SERVICE_NOT_CONFIGURED" ||
-    status === 403 ||
     status === 404 ||
     status === 503
   ) {
     return "configuration";
   }
   if (
-    code === "EMAIL_UNCONFIRMED" ||
+    code === "DATA_TOKEN_REQUIRED" ||
     code === "ACCESS_DENIED" ||
-    code === "AUTH_REQUIRED" ||
-    status === 401
+    status === 401 ||
+    status === 403
   ) {
     return "denied";
   }
@@ -151,22 +112,49 @@ async function invokeAccess<T>(
   action: string,
   payload: Record<string, unknown> = {}
 ): Promise<T> {
-  if (!isSupabaseConfigured || !supabase) {
+  const { url, publishableKey, isConfigured } = config.supabase;
+  const dataToken = config.jennyGate.dataToken;
+  if (!isConfigured || !url || !publishableKey || !config.jennyGate.isDataConfigured || !dataToken) {
     throw new JennyAccessRequestError("configuration");
   }
+  if (!hasValidTemporaryGateSession()) {
+    throw new JennyAccessRequestError("denied");
+  }
 
-  const token = await accessToken();
-  if (!token) throw new JennyAccessRequestError("denied");
+  let response: Response;
+  try {
+    response = await fetch(`${url}/functions/v1/${ACCESS_FUNCTION}`, {
+      method: "POST",
+      headers: {
+        apikey: publishableKey,
+        "Content-Type": "application/json",
+        "x-jenny-data-token": dataToken,
+      },
+      body: JSON.stringify({ action, ...payload }),
+    });
+  } catch {
+    throw new JennyAccessRequestError("unavailable");
+  }
 
-  const { data, error, response } = await supabase.functions.invoke(ACCESS_FUNCTION, {
-    body: { action, ...payload },
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (error) {
-    const details = await functionErrorDetails(response, error);
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
     throw new JennyAccessRequestError(
-      classifyAccessFailure(details.status, details.code),
-      details.status
+      response.ok ? "unavailable" : classifyAccessFailure(response.status),
+      response.status
+    );
+  }
+
+  if (!response.ok) {
+    const code =
+      data && typeof data === "object" && "code" in data &&
+      typeof (data as { code?: unknown }).code === "string"
+        ? (data as { code: string }).code
+        : undefined;
+    throw new JennyAccessRequestError(
+      classifyAccessFailure(response.status, code),
+      response.status
     );
   }
   return data as T;
@@ -211,15 +199,13 @@ export async function verifyJennySession(): Promise<boolean> {
 
 export async function clearJennySession(): Promise<void> {
   removeTemporaryGateSession();
-  // Also clear any obsolete local Supabase Auth session without making it a
-  // dependency of logout or of the temporary gate.
-  await safeLocalSupabaseSignOut();
 }
 
 /**
- * Legacy Jenny-only Supabase data actions (list/moderate contributions).
- * This is not used to enter /jenny/experience and remains separate from the
- * temporary local gate while the contributor backend is stabilized.
+ * Invokes private Supabase data actions after the local gate is valid. The
+ * temporary data token is sent only to jenny-access; no Supabase Auth session
+ * or JWT is created. The token is client-visible and is not production-grade
+ * authorization.
  */
 export async function invokeJennyAccess<T>(
   action: string,

@@ -6,6 +6,7 @@ import type { ContributionRecord } from "../types";
 import type { ContributionUploadPlan } from "./contributions";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { STORAGE_BUCKETS } from "./config";
+import { contributionFileMime } from "./validation";
 
 const LOCAL_KEY = "jenny:contributions";
 
@@ -60,10 +61,12 @@ async function uploadSignedAsset(
   }
 
   try {
+    const contentType = contributionFileMime(file, upload.type);
+    if (!contentType) throw new Error(`Format ${upload.type} non supporté`);
     const { error } = await supabase.storage
       .from(STORAGE_BUCKETS.media)
       .uploadToSignedUrl(upload.path, upload.token, file, {
-        contentType: file.type,
+        contentType,
       });
     if (error) throw new Error(error.message);
     onProgress?.(100);

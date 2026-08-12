@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { Reveal } from "../hooks";
 import { Stamp } from "../components/Chrome";
 import { PawIcon, ReelIcon } from "../components/icons";
-import { validateContribution, canSubmit, validatePhotoFile, validateVideoFile, getFieldErrors } from "../lib/validation";
+import { contributionFileMime, validateContribution, canSubmit, validatePhotoFile, validateVideoFile, getFieldErrors } from "../lib/validation";
 import { createPreviewUrl, revokePreviewUrl, saveLocalContribution, uploadContributionMedia } from "../lib/storage";
 import { isSupabaseConfigured } from "../lib/supabase";
 import {
@@ -86,8 +86,9 @@ export default function Participate() {
     setUploadState("validating");
     await new Promise((r) => setTimeout(r, 180)); // micro-feedback, respects reduced-motion via CSS
 
+    let validated: ReturnType<typeof validateContribution>;
     try {
-      validateContribution({ name, message: msg, photo, video });
+      validated = validateContribution({ name, message: msg, photo, video });
     } catch (err) {
       if (err instanceof ZodError) {
         const map = getFieldErrors(err);
@@ -118,8 +119,8 @@ export default function Participate() {
       await new Promise((r) => setTimeout(r, 200));
       const rec = {
         id: `local-${Date.now()}`,
-        contributorName: name.trim() || "Témoin anonyme",
-        message: msg.trim() || undefined,
+        contributorName: validated.name,
+        message: validated.message,
         photoUrl: photoDataUrl ?? photoUrl ?? undefined,
         videoLabel: video ? `Vidéo jointe — ${(video.size / 1048576).toFixed(1)} Mo` : undefined,
         createdAt: new Date().toISOString(),
@@ -139,12 +140,12 @@ export default function Participate() {
 
       if (!pendingSubmission.current) {
         const media = [
-          ...(photo ? [{ type: "photo" as const, mimeType: photo.type, sizeBytes: photo.size }] : []),
-          ...(video ? [{ type: "video" as const, mimeType: video.type, sizeBytes: video.size }] : []),
+          ...(photo ? [{ type: "photo" as const, mimeType: contributionFileMime(photo, "photo")!, sizeBytes: photo.size }] : []),
+          ...(video ? [{ type: "video" as const, mimeType: contributionFileMime(video, "video")!, sizeBytes: video.size }] : []),
         ];
         const submission = await createPendingContribution({
-          name: name.trim() || "Témoin anonyme",
-          message: msg.trim() || null,
+          name: validated.name,
+          message: validated.message ?? null,
           media,
         });
         pendingSubmission.current = { submission, uploadedAssetIds: new Set() };
@@ -239,7 +240,7 @@ export default function Participate() {
           <form onSubmit={handleSubmit} noValidate className="mt-4 grid gap-5">
             <div className="grid gap-5 md:grid-cols-2">
               <div>
-                <label htmlFor="p-name" className={labelCls}>Votre nom <span className="text-bone/40">(ou alias de témoin)</span></label>
+                <label htmlFor="p-name" className={labelCls}>Votre nom <span className="text-bone/40">(requis — alias accepté)</span></label>
                 <input
                   id="p-name"
                   type="text"
@@ -252,6 +253,7 @@ export default function Participate() {
                   autoComplete="name"
                   disabled={isBusy}
                   maxLength={80}
+                  required
                 />
                 {(fieldErrors.name || nameLenError) && <p id="p-name-error" role="alert" className="mt-2 font-mono text-[11px] text-ember">{fieldErrors.name ?? nameLenError}</p>}
                 <p className="mt-1 text-right font-mono text-[9px] tracking-[0.14em] text-fog">{name.length} / 80</p>
@@ -337,10 +339,10 @@ export default function Participate() {
             )}
 
             <div className="flex flex-wrap items-center gap-5">
-              <button type="submit" disabled={isBusy || !can || Boolean(photoInstantError || videoInstantError)} className="btn-stamp border border-ember/60 bg-blood px-7 py-4 font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-parch disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="submit" disabled={isBusy || Boolean(photoInstantError || videoInstantError)} className="btn-stamp border border-ember/60 bg-blood px-7 py-4 font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-parch disabled:cursor-not-allowed disabled:opacity-50">
                 {uploadState === "validating" ? "Validation…" : uploadState === "uploading" ? `Versement ${progress}%…` : uploadState === "processing" ? "Traitement…" : uploadState === "success" ? "Versé ✓" : "Verser la pièce au dossier"}
               </button>
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fog">Règle du greffe : message <span className="text-ember">ou</span> photo <span className="text-ember">ou</span> vidéo — jamais rien.</p>
+              <p className={`font-mono text-[10px] uppercase tracking-[0.18em] ${can ? "text-fog" : "text-brass"}`}>Règle du greffe : message <span className="text-ember">ou</span> photo <span className="text-ember">ou</span> vidéo — jamais rien.</p>
             </div>
 
             {uploadState === "error" && globalError && (

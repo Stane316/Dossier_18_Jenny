@@ -1,10 +1,17 @@
-import { supabase, isSupabaseConfigured } from "./supabase";
+import { isSupabaseConfigured } from "./supabase";
 import { loadLocalContributions } from "./storage";
 import { invokeJennyAccess } from "./auth";
+import { config } from "./config";
 import type { ContributionRecord } from "../types";
 import { DEPOSITIONS, type Deposition } from "../data";
 
 const CONTRIBUTION_FUNCTION = "contribution-pipeline";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PRIVATE_CONTRIBUTION_CACHE_MS = 4 * 60 * 1000;
+const privateContributionCache = new Map<
+  "approved" | "pending",
+  { expiresAt: number; request: Promise<Deposition[]> }
+>();
 
 export type ContributionMediaRequest = {
   type: "photo" | "video";
@@ -71,27 +78,17 @@ function toDeposition(record: ContributionRecord): Deposition {
   };
 }
 
-async function contributionErrorMessage(
-  response: Response | undefined,
-  error: unknown
-): Promise<string> {
-  const context =
-    error && typeof error === "object" && "context" in error
-      ? (error as { context?: unknown }).context
-      : undefined;
-  const source = response ?? (context instanceof Response ? context : undefined);
-  if (!source) return "Le service de contribution est injoignable";
+function contributionErrorMessage(
+  response: Response,
+  body: Record<string, unknown> | null
+): string {
+  if (response.status === 404) return "Le service de contribution n’est pas encore déployé";
+  if (response.status === 403) return "Ce site n’est pas autorisé à envoyer des contributions";
+  if (response.status === 429) return "Trop de tentatives — réessayez dans une heure";
+  if (response.status === 503) return "Le service de contribution est temporairement indisponible";
 
-  try {
-    const body = (await source.clone().json()) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.trim()) return body.error;
-  } catch {
-    // Fall through to a controlled status-based message.
-  }
-
-  if (source.status === 404) return "Le service de contribution n’est pas encore déployé";
-  if (source.status === 403) return "Ce site n’est pas autorisé à envoyer des contributions";
-  if (source.status === 429) return "Trop de tentatives — réessayez plus tard";
+  const serverMessage = body?.error;
+  if (typeof serverMessage === "string" && serverMessage.trim()) return serverMessage;
   return "Le service de contribution est indisponible";
 }
 
@@ -99,12 +96,47 @@ async function invokeContributionPipeline<T>(
   action: "create" | "finalize",
   payload: Record<string, unknown>
 ): Promise<T> {
-  if (!isSupabaseConfigured || !supabase) throw new Error("Supabase non configuré");
-  const { data, error, response } = await supabase.functions.invoke(CONTRIBUTION_FUNCTION, {
-    body: { action, ...payload },
-  });
-  if (error) throw new Error(await contributionErrorMessage(response, error));
-  return data as T;
+  const { url, publishableKey } = config.supabase;
+  if (!isSupabaseConfigured || !url || !publishableKey) {
+    throw new Error("Supabase non configuré");
+  }
+
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), 20_000);
+  let response: Response;
+  try {
+    response = await fetch(`${url}/functions/v1/${CONTRIBUTION_FUNCTION}`, {
+      method: "POST",
+      headers: {
+        apikey: publishableKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ action, ...payload }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Le service de contribution met trop de temps à répondre");
+    }
+    throw new Error("Le service de contribution est injoignable");
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    if (!response.ok) throw new Error(contributionErrorMessage(response, null));
+    throw new Error("Réponse invalide du service de contribution");
+  }
+
+  const body = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : null;
+  if (!response.ok) throw new Error(contributionErrorMessage(response, body));
+  if (!body) throw new Error("Réponse invalide du service de contribution");
+  return body as T;
 }
 
 /** Creates an atomic pending submission and returns exact path-bound Storage upload tokens. */
@@ -114,11 +146,21 @@ export async function createPendingContribution(input: {
   media: ContributionMediaRequest[];
 }): Promise<PendingContribution> {
   const response = await invokeContributionPipeline<PendingContribution>("create", input);
+  const validUploads = Array.isArray(response.uploads) && response.uploads.every((upload) =>
+    upload &&
+    typeof upload === "object" &&
+    UUID_PATTERN.test(upload.id) &&
+    (upload.type === "photo" || upload.type === "video") &&
+    typeof upload.path === "string" && upload.path.length > 0 &&
+    typeof upload.token === "string" && upload.token.length > 0
+  );
   if (
-    typeof response.contributionId !== "string" ||
-    !Array.isArray(response.uploads) ||
+    !UUID_PATTERN.test(response.contributionId) ||
+    !validUploads ||
     typeof response.complete !== "boolean" ||
-    (response.uploads.length > 0 && typeof response.submissionToken !== "string")
+    response.complete !== (response.uploads.length === 0) ||
+    (response.uploads.length > 0 &&
+      (typeof response.submissionToken !== "string" || response.submissionToken.length < 32))
   ) {
     throw new Error("Réponse de contribution invalide");
   }
@@ -185,28 +227,36 @@ async function fetchPrivateDepositions(
   status: "approved" | "pending"
 ): Promise<Deposition[]> {
   if (!isSupabaseConfigured) return [];
-  const response = await invokeJennyAccess<PrivateContributionResponse>(
+
+  const cached = privateContributionCache.get(status);
+  if (cached && cached.expiresAt > Date.now()) return cached.request;
+
+  const request = invokeJennyAccess<PrivateContributionResponse>(
     "list-contributions",
     { status }
-  );
-  if (!Array.isArray(response.contributions)) return [];
-  return response.contributions.map((row) => privateContributionToDeposition(row, status));
+  ).then((response) => {
+    if (!Array.isArray(response.contributions)) return [];
+    return response.contributions.map((row) => privateContributionToDeposition(row, status));
+  });
+  privateContributionCache.set(status, {
+    expiresAt: Date.now() + PRIVATE_CONTRIBUTION_CACHE_MS,
+    request,
+  });
+
+  try {
+    return await request;
+  } catch (error) {
+    privateContributionCache.delete(status);
+    throw error;
+  }
 }
 
 export async function fetchApprovedDepositions(): Promise<Deposition[]> {
-  try {
-    return await fetchPrivateDepositions("approved");
-  } catch {
-    return [];
-  }
+  return fetchPrivateDepositions("approved");
 }
 
 export async function fetchPendingDepositions(): Promise<Deposition[]> {
-  try {
-    return await fetchPrivateDepositions("pending");
-  } catch {
-    return [];
-  }
+  return fetchPrivateDepositions("pending");
 }
 
 /** Public fallback content exists only when Supabase is not configured. */
@@ -220,4 +270,5 @@ export async function approveContribution(contributionId: string): Promise<void>
     contributionId,
   });
   if (!response.ok) throw new Error("Échec de l'approbation");
+  privateContributionCache.clear();
 }

@@ -200,6 +200,8 @@ begin
 end;
 $$;
 
+-- Retain the non-reversible token hash after completion so finalization remains
+-- idempotent if the browser loses the successful response and retries.
 create or replace function public.finalize_contribution_submission(
   p_contribution_id uuid,
   p_submission_token_hash text
@@ -213,7 +215,6 @@ begin
   perform 1
   from public.contributions
   where id = p_contribution_id
-    and submission_complete = false
     and submission_token_hash = p_submission_token_hash
   for update;
 
@@ -226,8 +227,7 @@ begin
   where contribution_id = p_contribution_id;
 
   update public.contributions
-  set submission_complete = true,
-      submission_token_hash = null
+  set submission_complete = true
   where id = p_contribution_id;
 
   return true;

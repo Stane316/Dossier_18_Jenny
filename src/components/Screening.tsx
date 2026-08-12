@@ -53,6 +53,7 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
   const [muted, setMuted] = useState(true);
   const [t, setT] = useState(0);
   const [privateRecordings, setPrivateRecordings] = useState<PrivateRecording[] | null>(null);
+  const [privateLoadError, setPrivateLoadError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
@@ -65,30 +66,40 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
     let cancelled = false;
     const load = async () => {
       const recs: PrivateRecording[] = publicMemoryRecordings();
+      let bridgeFailed = !isSupabaseConfigured;
 
       if (isSupabaseConfigured) {
-        const approved = await fetchApprovedDepositions();
-        approved.forEach((d, idx) => {
-          if (d.videoUrl) {
-            recs.push({
-              id: `PR-${String(idx + 1).padStart(2, "0")}`,
-              label: `« ${d.name} »`,
-              camera: `CAM ${String(idx + 4).padStart(2, "0")} — TÉMOIN`,
-              src: d.videoUrl,
-              poster: d.photo ?? RECORDINGS[0].poster,
-              duration: 12,
-              transcript: [
-                { at: 0, text: `00:00 — Déposition de ${d.name} — lecture privée.` },
-                { at: 3, text: `00:03 — ${d.quote.slice(0, 60)}` },
-                { at: 8, text: "00:08 — Preuve versée au dossier privé." },
-              ],
-            });
-          }
-        });
+        try {
+          const approved = await fetchApprovedDepositions();
+          approved.forEach((d, idx) => {
+            if (d.videoUrl) {
+              recs.push({
+                id: `PR-${String(idx + 1).padStart(2, "0")}`,
+                label: `« ${d.name} »`,
+                camera: `CAM ${String(idx + 4).padStart(2, "0")} — TÉMOIN`,
+                src: d.videoUrl,
+                poster: d.photo ?? RECORDINGS[0].poster,
+                duration: 12,
+                transcript: [
+                  { at: 0, text: `00:00 — Déposition de ${d.name} — lecture privée.` },
+                  { at: 3, text: `00:03 — ${d.quote.slice(0, 60)}` },
+                  { at: 8, text: "00:08 — Preuve versée au dossier privé." },
+                ],
+              });
+            }
+          });
+        } catch {
+          bridgeFailed = true;
+        }
       }
 
       if (!cancelled) {
         setPrivateRecordings(recs);
+        setPrivateLoadError(
+          bridgeFailed
+            ? "Les contributions Supabase ne peuvent pas être chargées pour le moment. Les films-souvenirs du dossier restent disponibles."
+            : null
+        );
         if (recs[0]) setActiveId(recs[0].id);
       }
     };
@@ -169,9 +180,14 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
             Vérification des enregistrements privés…
           </p>
         )}
+        {privateMode && privateLoadError && (
+          <p role="alert" className="mt-3 border-l-2 border-ember/70 pl-3 font-mono text-[10px] leading-relaxed tracking-[0.08em] text-ember">
+            {privateLoadError}
+          </p>
+        )}
         {privateMode && privateRecordings && privateRecordings.length > 0 && (
           <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-brass">
-            {privateRecordings.length} film{privateRecordings.length > 1 ? "s" : ""}-souvenir — archive locale et contributions approuvées
+            {privateRecordings.length} film{privateRecordings.length > 1 ? "s" : ""}-souvenir — {privateLoadError ? "archive du dossier" : "archive du dossier et contributions approuvées"}
           </p>
         )}
         {privateMode && privateRecordings?.length === 0 && (

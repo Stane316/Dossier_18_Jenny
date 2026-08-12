@@ -32,6 +32,7 @@ const jennyGatePassword =
   import.meta.env.PASSWORD_JENNY.length > 0
     ? import.meta.env.PASSWORD_JENNY
     : undefined;
+const jennyDataToken = clean(import.meta.env.JENNY_DATA_TOKEN);
 
 export const config = {
   supabase: {
@@ -43,7 +44,9 @@ export const config = {
   jennyGate: {
     email: jennyGateEmail,
     password: jennyGatePassword,
+    dataToken: jennyDataToken,
     isConfigured: Boolean(jennyGateEmail && jennyGatePassword),
+    isDataConfigured: Boolean(jennyDataToken && jennyDataToken.length >= 32),
   },
   siteUrl:
     configuredSiteUrl ??

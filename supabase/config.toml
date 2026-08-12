@@ -1,6 +1,6 @@
 # Both functions enforce their own authorization/CORS contracts.
 # contribution-pipeline is intentionally public but rate-limited; jenny-access
-# validates the current Supabase Auth access token in its handler.
+# validates the temporary client-visible JENNY_DATA_TOKEN in its handler.
 [functions.jenny-access]
 verify_jwt = false
 

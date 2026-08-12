@@ -46,7 +46,9 @@ function json(
 }
 
 const MEDIA_BUCKET = "birthday-media";
-const RATE_LIMIT_MAX = 5;
+// Enough for the acceptance matrix and friends sharing one household/network,
+// while still throttling automated submission bursts per address.
+const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const encoder = new TextEncoder();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -64,6 +66,15 @@ const VIDEO_MIMES = new Set([
   "video/webm",
   "video/x-m4v",
 ]);
+
+const MIME_ALIASES: Record<string, string> = {
+  "image/jpg": "image/jpeg",
+  "image/pjpeg": "image/jpeg",
+  "image/heic-sequence": "image/heic",
+  "image/heif-sequence": "image/heif",
+  "video/mov": "video/quicktime",
+  "video/m4v": "video/x-m4v",
+};
 
 const EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -112,9 +123,9 @@ function serverConfig(): {
   serviceRoleKey: string;
   rateLimitSecret: string;
 } | null {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const supabaseUrl = (Deno.env.get("SUPABASE_URL") ?? "").trim();
   const serviceRoleKey = serverSecretKey();
-  const rateLimitSecret = Deno.env.get("CONTRIBUTION_RATE_LIMIT_SECRET") ?? "";
+  const rateLimitSecret = (Deno.env.get("CONTRIBUTION_RATE_LIMIT_SECRET") ?? "").trim();
   if (!supabaseUrl || !serviceRoleKey || rateLimitSecret.length < 32) return null;
   return { supabaseUrl, serviceRoleKey, rateLimitSecret };
 }
@@ -128,11 +139,11 @@ function normalizeMedia(value: unknown): RequestedMedia[] | null {
     if (!item || typeof item !== "object") return null;
     const raw = item as Record<string, unknown>;
     const type = raw.type;
-    const mimeType = raw.mimeType;
+    const requestedMime = raw.mimeType;
     const sizeBytes = raw.sizeBytes;
     if (
       (type !== "photo" && type !== "video") ||
-      typeof mimeType !== "string" ||
+      typeof requestedMime !== "string" ||
       typeof sizeBytes !== "number" ||
       !Number.isSafeInteger(sizeBytes) ||
       seen.has(type)
@@ -140,6 +151,8 @@ function normalizeMedia(value: unknown): RequestedMedia[] | null {
       return null;
     }
 
+    const rawMime = requestedMime.trim().toLowerCase().split(";", 1)[0];
+    const mimeType = MIME_ALIASES[rawMime] ?? rawMime;
     const valid =
       type === "photo"
         ? PHOTO_MIMES.has(mimeType) && sizeBytes > 0 && sizeBytes <= 10 * 1024 * 1024
@@ -205,7 +218,11 @@ async function reserveSubmission(
     media === null ||
     (!message && media.length === 0)
   ) {
-    return json({ error: "Contribution invalide" }, 400, origin);
+    return json(
+      { error: "Ajoute un nom et au moins un message, une photo ou une vidéo valide.", code: "INVALID_CONTRIBUTION" },
+      400,
+      origin
+    );
   }
 
   const admin = createClient(config.supabaseUrl, config.serviceRoleKey, {
@@ -220,9 +237,19 @@ async function reserveSubmission(
   });
   if (rateError) {
     console.error("[contribution-pipeline] rate-limit RPC failed", { code: rateError.code });
-    return json({ error: "Service de contribution indisponible" }, 503, origin);
+    return json(
+      { error: "Service de contribution indisponible", code: "RATE_LIMIT_UNAVAILABLE" },
+      503,
+      origin
+    );
   }
-  if (allowed !== true) return json({ error: "Trop de tentatives — réessayez plus tard" }, 429, origin);
+  if (allowed !== true) {
+    return json(
+      { error: "Trop de tentatives — réessayez plus tard", code: "RATE_LIMITED" },
+      429,
+      origin
+    );
+  }
 
   const contributorId = crypto.randomUUID();
   const contributionId = crypto.randomUUID();
@@ -252,7 +279,11 @@ async function reserveSubmission(
   });
   if (createError) {
     console.error("[contribution-pipeline] submission RPC failed", { code: createError.code });
-    return json({ error: "La contribution n'a pas pu être créée" }, 500, origin);
+    return json(
+      { error: "La contribution n'a pas pu être enregistrée", code: "CREATE_FAILED" },
+      500,
+      origin
+    );
   }
 
   const uploads: Array<{
@@ -272,7 +303,11 @@ async function reserveSubmission(
         mediaType: asset.type,
       });
       await admin.from("contributors").delete().eq("id", contributorId);
-      return json({ error: "Le versement média n'a pas pu être préparé" }, 500, origin);
+      return json(
+        { error: "Le versement média n'a pas pu être préparé", code: "UPLOAD_PREPARATION_FAILED" },
+        500,
+        origin
+      );
     }
     uploads.push({ id: asset.id, type: asset.type, path: asset.storage_path, token: signed.token });
   }
@@ -299,7 +334,7 @@ async function finalizeSubmission(
   const submissionToken =
     typeof body.submissionToken === "string" ? body.submissionToken.trim() : "";
   if (!UUID_PATTERN.test(contributionId) || submissionToken.length < 32 || submissionToken.length > 256) {
-    return json({ error: "Finalisation invalide" }, 400, origin);
+    return json({ error: "Finalisation invalide", code: "INVALID_FINALIZATION" }, 400, origin);
   }
 
   const admin = createClient(config.supabaseUrl, config.serviceRoleKey, {
@@ -315,12 +350,23 @@ async function finalizeSubmission(
       `
     )
     .eq("id", contributionId)
-    .eq("submission_complete", false)
     .eq("submission_token_hash", tokenHash)
     .maybeSingle();
 
-  if (error) return json({ error: "Finalisation indisponible" }, 503, origin);
-  if (!contribution) return json({ error: "Contribution introuvable ou déjà finalisée" }, 404, origin);
+  if (error) {
+    console.error("[contribution-pipeline] finalization lookup failed", { code: error.code });
+    return json({ error: "Finalisation indisponible", code: "FINALIZATION_UNAVAILABLE" }, 503, origin);
+  }
+  if (!contribution) {
+    return json(
+      { error: "Contribution introuvable ou jeton de reprise invalide", code: "CONTRIBUTION_NOT_FOUND" },
+      404,
+      origin
+    );
+  }
+  if (contribution.submission_complete === true) {
+    return json({ ok: true, alreadyComplete: true }, 200, origin);
+  }
 
   for (const asset of contribution.media_assets ?? []) {
     const slash = asset.storage_path.lastIndexOf("/");
@@ -329,13 +375,30 @@ async function finalizeSubmission(
     const { data: objects, error: listError } = await admin.storage
       .from(MEDIA_BUCKET)
       .list(folder, { limit: 10, search: fileName });
-    if (listError) return json({ error: "Vérification média indisponible" }, 503, origin);
+    if (listError) {
+      console.error("[contribution-pipeline] media verification failed", {
+        code: listError.name,
+        mediaId: asset.id,
+      });
+      return json(
+        { error: "Vérification média indisponible", code: "MEDIA_VERIFICATION_UNAVAILABLE" },
+        503,
+        origin
+      );
+    }
 
     const object = objects?.find((candidate) => candidate.name === fileName);
     const uploadedSize = Number(object?.metadata?.size);
-    const uploadedMime = String(object?.metadata?.mimetype ?? "");
-    if (!object || uploadedSize !== asset.size_bytes || uploadedMime !== asset.mime_type) {
-      return json({ error: "Tous les médias n'ont pas encore été versés" }, 409, origin);
+    const uploadedMime = String(
+      object?.metadata?.mimetype ?? object?.metadata?.contentType ?? ""
+    ).toLowerCase().split(";", 1)[0];
+    const expectedMime = String(asset.mime_type).toLowerCase();
+    if (!object || uploadedSize !== asset.size_bytes || uploadedMime !== expectedMime) {
+      return json(
+        { error: "Tous les médias n'ont pas encore été versés", code: "MEDIA_INCOMPLETE" },
+        409,
+        origin
+      );
     }
   }
 
@@ -346,8 +409,17 @@ async function finalizeSubmission(
       p_submission_token_hash: tokenHash,
     }
   );
-  if (finalizeError) return json({ error: "La contribution n'a pas pu être finalisée" }, 500, origin);
-  if (finalized !== true) return json({ error: "Finalisation refusée" }, 409, origin);
+  if (finalizeError) {
+    console.error("[contribution-pipeline] finalization RPC failed", { code: finalizeError.code });
+    return json(
+      { error: "La contribution n'a pas pu être finalisée", code: "FINALIZATION_FAILED" },
+      500,
+      origin
+    );
+  }
+  if (finalized !== true) {
+    return json({ error: "Finalisation refusée", code: "FINALIZATION_REFUSED" }, 409, origin);
+  }
   return json({ ok: true }, 200, origin);
 }
 
@@ -363,7 +435,9 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: responseHeaders(origin) });
   }
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405, origin);
+  if (req.method !== "POST") {
+    return json({ error: "Method not allowed", code: "METHOD_NOT_ALLOWED" }, 405, origin);
+  }
 
   const config = serverConfig();
   const originCount = configuredOrigins().size;
@@ -384,12 +458,16 @@ Deno.serve(async (req: Request) => {
 
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    const parsed = await req.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return json({ error: "Requête invalide", code: "INVALID_REQUEST" }, 400, origin);
+    }
+    body = parsed as Record<string, unknown>;
   } catch {
-    return json({ error: "Requête invalide" }, 400, origin);
+    return json({ error: "Requête invalide", code: "INVALID_REQUEST" }, 400, origin);
   }
 
   if (body.action === "create") return reserveSubmission(body, req, origin, config);
   if (body.action === "finalize") return finalizeSubmission(body, origin, config);
-  return json({ error: "Action inconnue" }, 400, origin);
+  return json({ error: "Action inconnue", code: "UNKNOWN_ACTION" }, 400, origin);
 });

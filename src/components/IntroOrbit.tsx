@@ -61,13 +61,18 @@ function useMemories(): OrbitItem[] {
       }
 
       // Contributions approuvées : URLs signées du bucket Supabase privé.
+      // A data-bridge failure must not block the curated birthday memories.
       if (isSupabaseConfigured) {
-        const approved = await fetchApprovedDepositions();
-        approved.forEach((d, i) => {
-          if (d.photo) {
-            privatePhotos.push({ id: `approved-${i}-${d.id}`, src: d.photo, alt: d.name });
-          }
-        });
+        try {
+          const approved = await fetchApprovedDepositions();
+          approved.forEach((d, i) => {
+            if (d.photo) {
+              privatePhotos.push({ id: `approved-${i}-${d.id}`, src: d.photo, alt: d.name });
+            }
+          });
+        } catch {
+          // Depositions/Screening expose the actionable bridge error to Jenny.
+        }
       }
 
       if (!cancelled) {
