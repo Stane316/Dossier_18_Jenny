@@ -189,7 +189,7 @@ export default function JennyGate() {
                         role="alert"
                         className="deny-shake border-l-2 border-blood bg-blood/5 px-4 py-3 font-mono text-[10px] leading-relaxed tracking-[0.08em] text-ember"
                       >
-{ERROR_MESSAGES[error]}
+                        {ERROR_MESSAGES[error]}
                       </p>
                     )}
                   </div>

@@ -5,6 +5,11 @@ import { SectionHead } from "./Chrome";
 import { PauseIcon, PlayIcon, ReelIcon } from "./icons";
 import { isSupabaseConfigured } from "../lib/supabase";
 import { fetchApprovedDepositions } from "../lib/contributions";
+import {
+  PUBLIC_MEMORY_IMAGES,
+  PUBLIC_MEMORY_VIDEOS,
+  memoryLabel,
+} from "../lib/publicMemories";
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
@@ -20,6 +25,28 @@ type PrivateRecording = {
   transcript: { at: number; text: string }[];
 };
 
+function publicMemoryRecordings(): PrivateRecording[] {
+  return PUBLIC_MEMORY_VIDEOS.map((asset, index) => {
+    const label = memoryLabel("video", index);
+    const poster =
+      PUBLIC_MEMORY_IMAGES[index % Math.max(PUBLIC_MEMORY_IMAGES.length, 1)]?.src ??
+      RECORDINGS[0].poster;
+    return {
+      id: `PM-${String(index + 1).padStart(2, "0")}`,
+      label: `« ${label} »`,
+      camera: `ARCHIVE ${String(index + 1).padStart(2, "0")} — SOUVENIR`,
+      src: asset.src,
+      poster,
+      duration: 0,
+      transcript: [
+        { at: 0, text: `00:00 — ${label} versé au dossier de Jenny.` },
+        { at: 4, text: "00:04 — Images d'archive — lecture personnelle." },
+        { at: 8, text: "00:08 — Souvenir conservé au dossier N°18." },
+      ],
+    };
+  });
+}
+
 export default function Screening({ privateMode = false }: { privateMode?: boolean }) {
   const [activeId, setActiveId] = useState(RECORDINGS[0].id);
   const [playing, setPlaying] = useState(false);
@@ -30,13 +57,14 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
   const playerRef = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
 
-  // Les vidéos privées proviennent exclusivement du bucket Supabase privé.
-  // Aucune vidéo personnelle ne doit être importée depuis public/.
+  // Les vidéos de lancement sont détectées automatiquement dans public/memories
+  // au build. Les vidéos de contribution approuvées sont ensuite ajoutées depuis
+  // le bucket Supabase au moyen d'URLs signées.
   useEffect(() => {
     if (!privateMode) return;
     let cancelled = false;
     const load = async () => {
-      const recs: PrivateRecording[] = [];
+      const recs: PrivateRecording[] = publicMemoryRecordings();
 
       if (isSupabaseConfigured) {
         const approved = await fetchApprovedDepositions();
@@ -70,8 +98,8 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
     };
   }, [privateMode]);
 
-  const hasPrivateRecordings = privateMode && Boolean(privateRecordings?.length);
-  const recordings = hasPrivateRecordings ? privateRecordings! : RECORDINGS;
+  const hasJennyRecordings = privateMode && Boolean(privateRecordings?.length);
+  const recordings = hasJennyRecordings ? privateRecordings! : RECORDINGS;
   const rec = (recordings as any).find((r: any) => r.id === activeId) ?? recordings[0];
 
   useEffect(() => {
@@ -133,7 +161,7 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
       <Reveal className="-mt-6 mb-12 max-w-3xl md:-mt-8">
         <p className="font-mono text-[12px] leading-relaxed text-bone/70">
           {privateMode
-            ? "Les vidéos privées approuvées sont chargées depuis Supabase au moyen d'URLs signées temporaires. Aucun souvenir personnel n'est servi depuis le dossier public."
+            ? "Les films-souvenirs ajoutés dans public/memories sont intégrés automatiquement au prochain build. Les contributions approuvées complètent la projection depuis Supabase via des URLs signées temporaires."
             : "Les vidéos jointes au dossier ne sont pas de simples pièces : ce sont des scènes reconstituées. Lumière éteinte, son monté. Le greffe transcrit en direct."}
         </p>
         {privateMode && privateRecordings === null && (
@@ -143,12 +171,12 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
         )}
         {privateMode && privateRecordings && privateRecordings.length > 0 && (
           <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-brass">
-            {privateRecordings.length} vidéo{privateRecordings.length > 1 ? "s" : ""} privée{privateRecordings.length > 1 ? "s" : ""} — lecture via URL signée
+            {privateRecordings.length} film{privateRecordings.length > 1 ? "s" : ""}-souvenir — archive locale et contributions approuvées
           </p>
         )}
         {privateMode && privateRecordings?.length === 0 && (
           <p className="mt-3 border-l-2 border-brass/60 pl-3 font-mono text-[10px] uppercase leading-relaxed tracking-[0.14em] text-brass">
-            Aucune vidéo privée disponible — bandes de démonstration affichées temporairement.
+            Aucun film-souvenir détecté — bandes de démonstration affichées temporairement.
           </p>
         )}
       </Reveal>
@@ -257,9 +285,9 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
               ))}
             </ol>
             <p className="mt-auto pt-6 font-mono text-[9px] uppercase leading-relaxed tracking-[0.18em] text-fog/70">
-              {hasPrivateRecordings
-                ? "Vidéos privées via URLs signées temporaires — ne pas partager l'URL."
-                : "Bandes de démonstration publiques — les médias privés restent dans Supabase Storage."}
+              {hasJennyRecordings
+                ? "Archives public/memories + contributions Supabase approuvées."
+                : "Bandes de démonstration publiques — ajoutez un fichier vidéo dans public/memories pour le remplacer."}
             </p>
           </aside>
         </Reveal>

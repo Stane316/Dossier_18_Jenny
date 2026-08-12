@@ -3,6 +3,7 @@ import { MEMORIES_FALLBACK } from "../data";
 import { useReducedMotion } from "../hooks";
 import { isSupabaseConfigured } from "../lib/supabase";
 import { fetchApprovedDepositions } from "../lib/contributions";
+import { PUBLIC_MEMORY_IMAGES, memoryLabel } from "../lib/publicMemories";
 import { loadLocalContributions } from "../lib/storage";
 
 /**
@@ -10,8 +11,8 @@ import { loadLocalContributions } from "../lib/storage";
  * - Constellation de N souvenirs (photos) qui gravitent autour de MJ
  * - Scroll 0→100% : orbit large → converge → MJ domine → transition vers JennyCore
  * - Fallback DOM 2.5D (pas de WebGL), progressive enhancement
- * - Les vrais souvenirs proviennent uniquement de sources privées :
- *   Supabase approved (URL signée) ou contribution locale du navigateur.
+ * - Sources partagées : public/memories détecté au build, contributions
+ *   Supabase approuvées, puis fallback local/de démonstration si nécessaire.
  */
 
 type OrbitItem = { id: string; src: string; alt: string };
@@ -24,8 +25,23 @@ function fallbackItems(): OrbitItem[] {
   }));
 }
 
+function publicItems(): OrbitItem[] {
+  return PUBLIC_MEMORY_IMAGES.map((asset, index) => ({
+    id: asset.id,
+    src: asset.src,
+    alt: `${memoryLabel("image", index)} de Jenny`,
+  }));
+}
+
+function withMinimumFallback(items: OrbitItem[]): OrbitItem[] {
+  if (items.length >= 8) return items;
+  return [...items, ...fallbackItems().slice(0, 8 - items.length)];
+}
+
 function useMemories(): OrbitItem[] {
-  const [items, setItems] = useState<OrbitItem[]>(fallbackItems);
+  const [items, setItems] = useState<OrbitItem[]>(() =>
+    withMinimumFallback(publicItems())
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -55,7 +71,7 @@ function useMemories(): OrbitItem[] {
       }
 
       if (!cancelled) {
-        const merged = [...privatePhotos, ...fallbackItems()].slice(0, 24);
+        const merged = withMinimumFallback([...publicItems(), ...privatePhotos]);
         const seen = new Set<string>();
         const dedup = merged.filter((memory) => {
           if (seen.has(memory.src)) return false;
@@ -80,8 +96,9 @@ export default function IntroOrbit() {
   const [progress, setProgress] = useState(0);
   const rafRef = useRef<number>(0);
   const memories = useMemories();
-  const N = Math.min(memories.length, 14); // cap for performance
-  const display = memories.slice(0, N);
+  // Curated launch media are intentionally all represented in the orbit.
+  const display = memories;
+  const N = Math.max(display.length, 1);
 
   // Scroll progress 0→1 for the pinned intro (180vh container)
   useEffect(() => {

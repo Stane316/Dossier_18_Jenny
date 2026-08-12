@@ -253,9 +253,9 @@ export const CLOSING_LINE =
   "18 ans n'est que le numéro de la première pièce du prochain dossier.";
 
 /* ── MÉMOIRES — orbit intro E.1 ── */
-// Visuels publics non privés utilisés uniquement lorsque Supabase n'a encore
-// retourné aucun souvenir approuvé. Les vrais souvenirs restent dans le bucket
-// privé birthday-media et ne doivent jamais être ajoutés sous public/.
+// Visuels thématiques de secours. Les souvenirs de lancement ajoutés sous
+// public/memories sont détectés automatiquement au build; les contributions
+// approuvées restent chargées depuis le bucket Supabase birthday-media.
 export const MEMORIES_FALLBACK: string[] = [
   "/images/piece-chaton.jpg",
   "/images/piece-lapin.jpg",

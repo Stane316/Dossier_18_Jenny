@@ -5,18 +5,6 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 
-/memories/*
-  X-Robots-Tag: noindex, nofollow, noarchive, nosnippet
-  Cache-Control: no-store
-
-/images/memories/*
-  X-Robots-Tag: noindex, nofollow, noarchive, nosnippet
-  Cache-Control: no-store
-
-/videos/memories/*
-  X-Robots-Tag: noindex, nofollow, noarchive, nosnippet
-  Cache-Control: no-store
-
 /jenny
   X-Robots-Tag: noindex, nofollow, noarchive, nosnippet
   Cache-Control: no-store

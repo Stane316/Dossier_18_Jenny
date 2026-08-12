@@ -11,3 +11,14 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+declare module "virtual:jenny-memories" {
+  export type PublicMemoryAsset = {
+    id: string;
+    name: string;
+    src: string;
+    kind: "image" | "video";
+  };
+
+  export const PUBLIC_MEMORIES: readonly PublicMemoryAsset[];
+}

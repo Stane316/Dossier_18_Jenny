@@ -1,5 +1,2 @@
 User-agent: *
 Disallow: /jenny
-Disallow: /memories/
-Disallow: /images/memories/
-Disallow: /videos/memories/

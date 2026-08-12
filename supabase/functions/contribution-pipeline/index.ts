@@ -94,18 +94,17 @@ type ReservedMedia = {
 };
 
 function serverSecretKey(): string {
-  const legacyKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (legacyKey) return legacyKey;
-
   try {
     const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}") as Record<
       string,
       unknown
     >;
-    return typeof keys.default === "string" ? keys.default : "";
+    const modernKey = typeof keys.default === "string" ? keys.default.trim() : "";
+    if (modernKey) return modernKey;
   } catch {
-    return "";
+    // Fall through to the legacy hosted-project key.
   }
+  return (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
 }
 
 function serverConfig(): {
@@ -219,7 +218,10 @@ async function reserveSubmission(
     p_limit: RATE_LIMIT_MAX,
     p_window_seconds: RATE_LIMIT_WINDOW_SECONDS,
   });
-  if (rateError) return json({ error: "Service de contribution indisponible" }, 503, origin);
+  if (rateError) {
+    console.error("[contribution-pipeline] rate-limit RPC failed", { code: rateError.code });
+    return json({ error: "Service de contribution indisponible" }, 503, origin);
+  }
   if (allowed !== true) return json({ error: "Trop de tentatives — réessayez plus tard" }, 429, origin);
 
   const contributorId = crypto.randomUUID();
@@ -248,7 +250,10 @@ async function reserveSubmission(
     p_submission_token_hash: submissionTokenHash,
     p_media: reserved,
   });
-  if (createError) return json({ error: "La contribution n'a pas pu être créée" }, 500, origin);
+  if (createError) {
+    console.error("[contribution-pipeline] submission RPC failed", { code: createError.code });
+    return json({ error: "La contribution n'a pas pu être créée" }, 500, origin);
+  }
 
   const uploads: Array<{
     id: string;
@@ -262,6 +267,10 @@ async function reserveSubmission(
       .from(MEDIA_BUCKET)
       .createSignedUploadUrl(asset.storage_path);
     if (signedError || !signed?.token) {
+      console.error("[contribution-pipeline] signed upload creation failed", {
+        code: signedError?.name,
+        mediaType: asset.type,
+      });
       await admin.from("contributors").delete().eq("id", contributorId);
       return json({ error: "Le versement média n'a pas pu être préparé" }, 500, origin);
     }
@@ -344,15 +353,33 @@ async function finalizeSubmission(
 
 Deno.serve(async (req: Request) => {
   const origin = requestOrigin(req);
-  if (!isAllowedOrigin(origin)) return json({ error: "Origin not allowed" }, 403, null);
+  if (!isAllowedOrigin(origin)) {
+    console.warn("[contribution-pipeline] request rejected", {
+      reason: "origin_not_allowed",
+      origin,
+    });
+    return json({ error: "Origin not allowed", code: "ORIGIN_NOT_ALLOWED" }, 403, null);
+  }
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: responseHeaders(origin) });
   }
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405, origin);
 
   const config = serverConfig();
-  if (!config || configuredOrigins().size === 0) {
-    return json({ error: "Service de contribution indisponible" }, 503, origin);
+  const originCount = configuredOrigins().size;
+  if (!config || originCount === 0) {
+    console.error("[contribution-pipeline] configuration unavailable", {
+      supabaseUrlConfigured: Boolean((Deno.env.get("SUPABASE_URL") ?? "").trim()),
+      serverKeyConfigured: Boolean(serverSecretKey()),
+      rateLimitSecretConfigured:
+        (Deno.env.get("CONTRIBUTION_RATE_LIMIT_SECRET") ?? "").length >= 32,
+      allowedOriginCount: originCount,
+    });
+    return json(
+      { error: "Service de contribution indisponible", code: "SERVICE_NOT_CONFIGURED" },
+      503,
+      origin
+    );
   }
 
   let body: Record<string, unknown>;

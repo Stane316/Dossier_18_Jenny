@@ -1,4 +1,8 @@
-import { createClient } from "npm:@supabase/supabase-js@2.109.0";
+import {
+  createClient,
+  type SupabaseClient,
+  type User,
+} from "npm:@supabase/supabase-js@2.109.0";
 
 function configuredOrigins(): Set<string> {
   return new Set(
@@ -56,18 +60,17 @@ type PrivateMedia = {
 };
 
 function serverSecretKey(): string {
-  const legacyKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (legacyKey) return legacyKey;
-
   try {
     const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}") as Record<
       string,
       unknown
     >;
-    return typeof keys.default === "string" ? keys.default : "";
+    const modernKey = typeof keys.default === "string" ? keys.default.trim() : "";
+    if (modernKey) return modernKey;
   } catch {
-    return "";
+    // Fall through to the legacy hosted-project key.
   }
+  return (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
 }
 
 function serverConfig(): {
@@ -88,30 +91,44 @@ function bearerToken(req: Request): string | null {
   return match?.[1]?.trim() || null;
 }
 
+type JennyAuthorization =
+  | {
+      ok: true;
+      admin: SupabaseClient;
+      user: User;
+    }
+  | {
+      ok: false;
+      code: "AUTH_REQUIRED" | "EMAIL_UNCONFIRMED" | "ACCESS_DENIED";
+      reason: "missing_token" | "invalid_session" | "email_unconfirmed" | "email_not_allowed";
+    };
+
 async function authorizeJenny(
   req: Request,
   supabaseUrl: string,
   serviceRoleKey: string,
   allowedEmail: string
-) {
+): Promise<JennyAuthorization> {
   const token = bearerToken(req);
-  if (!token) return null;
+  if (!token) {
+    return { ok: false, code: "AUTH_REQUIRED", reason: "missing_token" };
+  }
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await admin.auth.getUser(token);
   const user = data.user;
-  if (
-    error ||
-    !user ||
-    !user.email ||
-    user.email.toLowerCase() !== allowedEmail ||
-    !user.email_confirmed_at
-  ) {
-    return null;
+  if (error || !user) {
+    return { ok: false, code: "AUTH_REQUIRED", reason: "invalid_session" };
   }
-  return { admin, user };
+  if (!user.email || user.email.toLowerCase() !== allowedEmail) {
+    return { ok: false, code: "ACCESS_DENIED", reason: "email_not_allowed" };
+  }
+  if (!user.email_confirmed_at) {
+    return { ok: false, code: "EMAIL_UNCONFIRMED", reason: "email_unconfirmed" };
+  }
+  return { ok: true, admin, user };
 }
 
 async function listContributions(
@@ -165,15 +182,29 @@ async function listContributions(
 
 Deno.serve(async (req: Request) => {
   const origin = requestOrigin(req);
-  if (!isAllowedOrigin(origin)) return json({ error: "Origin not allowed" }, 403, null);
+  if (!isAllowedOrigin(origin)) {
+    console.warn("[jenny-access] request rejected", { reason: "origin_not_allowed", origin });
+    return json({ error: "Origin not allowed", code: "ORIGIN_NOT_ALLOWED" }, 403, null);
+  }
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: responseHeaders(origin) });
   }
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405, origin);
 
   const config = serverConfig();
-  if (!config || configuredOrigins().size === 0) {
-    return json({ error: "Private access service is unavailable" }, 503, origin);
+  const originCount = configuredOrigins().size;
+  if (!config || originCount === 0) {
+    console.error("[jenny-access] configuration unavailable", {
+      allowedEmailConfigured: Boolean((Deno.env.get("JENNY_ALLOWED_EMAIL") ?? "").trim()),
+      supabaseUrlConfigured: Boolean((Deno.env.get("SUPABASE_URL") ?? "").trim()),
+      serverKeyConfigured: Boolean(serverSecretKey()),
+      allowedOriginCount: originCount,
+    });
+    return json(
+      { error: "Private access service is unavailable", code: "SERVICE_NOT_CONFIGURED" },
+      503,
+      origin
+    );
   }
 
   const authorized = await authorizeJenny(
@@ -182,7 +213,15 @@ Deno.serve(async (req: Request) => {
     config.serviceRoleKey,
     config.allowedEmail
   );
-  if (!authorized) return json({ error: "Jenny authentication required" }, 401, origin);
+  if (!authorized.ok) {
+    console.warn("[jenny-access] authorization denied", { reason: authorized.reason });
+    const status = authorized.code === "AUTH_REQUIRED" ? 401 : 403;
+    return json(
+      { error: "Jenny authentication required", code: authorized.code },
+      status,
+      origin
+    );
+  }
 
   let body: Record<string, unknown>;
   try {
@@ -208,7 +247,10 @@ Deno.serve(async (req: Request) => {
   if (body.action === "list-contributions") {
     const status = body.status === "pending" ? "pending" : "approved";
     const result = await listContributions(status, authorized.admin);
-    if (result.error) return json({ error: result.error }, 500, origin);
+    if (result.error) {
+      console.error("[jenny-access] contribution listing failed", { status });
+      return json({ error: result.error, code: "DATA_UNAVAILABLE" }, 500, origin);
+    }
     return json({ contributions: result.data ?? [] }, 200, origin);
   }
 
@@ -228,7 +270,14 @@ Deno.serve(async (req: Request) => {
       .select("id")
       .maybeSingle();
 
-    if (error) return json({ error: "Contribution could not be approved" }, 500, origin);
+    if (error) {
+      console.error("[jenny-access] contribution approval failed", { code: error.code });
+      return json(
+        { error: "Contribution could not be approved", code: "APPROVAL_FAILED" },
+        500,
+        origin
+      );
+    }
     if (!data) return json({ error: "Pending contribution not found" }, 404, origin);
     return json({ ok: true }, 200, origin);
   }

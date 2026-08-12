@@ -4,7 +4,5 @@ dist
 .env.local
 .DS_Store
 
-# Private Jenny media must live in Supabase Storage, never in public/.
-public/memories/
-public/images/memories/
-public/videos/memories/
+# Curated launch memories under public/memories are intentionally tracked.
+# Contributor uploads remain in the private Supabase Storage bucket.
