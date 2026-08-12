@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { COVER_META, WARNING_STRIP } from "../data";
 import { Stamp } from "./Chrome";
+import { PUBLIC_MEMORY_IMAGES } from "../lib/publicMemories";
 import { ArrowDownIcon, PawIcon } from "./icons";
 
 /* Sceau circulaire rotatif — cire rouge du dossier */
@@ -26,6 +27,10 @@ function WaxSeal() {
 
 export default function Cover({ privateMode = false }: { privateMode?: boolean }) {
   const rise = (d: number) => ({ "--rise-delay": `${d}ms` }) as CSSProperties;
+  const heroImage =
+    privateMode && PUBLIC_MEMORY_IMAGES.length > 0
+      ? PUBLIC_MEMORY_IMAGES[0].src
+      : "/images/emblem-cat.jpg";
 
   return (
     <section
@@ -33,13 +38,13 @@ export default function Cover({ privateMode = false }: { privateMode?: boolean }
       data-chapter="I — Couverture"
       className="relative flex min-h-svh flex-col justify-center overflow-hidden px-5 pb-36 pt-28 md:px-12 lg:px-20"
     >
-      {/* Lueur rouge d'ouverture + emblème félin */}
+      {/* Lueur rouge d'ouverture + souvenir héroïque (emblème en fallback) */}
       <div
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_55%_at_18%_30%,rgba(200,16,46,0.17),transparent_60%)]"
         aria-hidden="true"
       />
       <img
-        src="/images/emblem-cat.jpg"
+        src={heroImage}
         alt=""
         aria-hidden="true"
         className="pointer-events-none absolute right-0 top-0 h-full w-[62%] object-cover opacity-45 mix-blend-screen [mask-image:linear-gradient(to_left,black_45%,transparent_95%)] md:w-[52%]"
