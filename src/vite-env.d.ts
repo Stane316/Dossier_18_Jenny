@@ -25,3 +25,14 @@ declare module "virtual:jenny-memories" {
 
   export const PUBLIC_MEMORIES: readonly PublicMemoryAsset[];
 }
+
+declare module "virtual:jenny-testimonials" {
+  export type PublicTestimonialAsset = {
+    id: string;
+    key: string;
+    name: string;
+    src: string;
+  };
+
+  export const PUBLIC_TESTIMONIAL_ASSETS: readonly PublicTestimonialAsset[];
+}

@@ -63,11 +63,10 @@ const CHAPTERS = [
   { id: "couverture", num: "I" },
   { id: "rapport", num: "II" },
   { id: "pieces", num: "III" },
-  { id: "temoins", num: "IV" },
+  { id: "temoignages", num: "IV" },
   { id: "projection", num: "V" },
   { id: "verdict", num: "VI" },
   { id: "cloture", num: "VII" },
-  { id: "annexe", num: "VIII" },
 ];
 
 export function DossierBar() {

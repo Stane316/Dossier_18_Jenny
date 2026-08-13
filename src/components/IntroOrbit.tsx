@@ -38,7 +38,7 @@ function withMinimumFallback(items: OrbitItem[]): OrbitItem[] {
   return [...items, ...fallbackItems().slice(0, 8 - items.length)];
 }
 
-function useMemories(): OrbitItem[] {
+function useMemories(includeContributions: boolean): OrbitItem[] {
   const [items, setItems] = useState<OrbitItem[]>(() =>
     withMinimumFallback(publicItems())
   );
@@ -48,30 +48,32 @@ function useMemories(): OrbitItem[] {
     const load = async () => {
       const privatePhotos: OrbitItem[] = [];
 
-      // Le mode local est strictement un fallback de démonstration. Des données
-      // résiduelles du navigateur ne doivent jamais entrer dans l'expérience de
-      // production dès que Supabase est configuré.
-      if (!isSupabaseConfigured) {
-        const locals = loadLocalContributions().filter((r) => r.photoUrl);
-        locals.forEach((r, i) => {
-          if (r.photoUrl) {
-            privatePhotos.push({ id: `local-${i}-${r.id}`, src: r.photoUrl, alt: r.contributorName });
-          }
-        });
-      }
-
-      // Contributions approuvées : URLs signées du bucket Supabase privé.
-      // A data-bridge failure must not block the curated birthday memories.
-      if (isSupabaseConfigured) {
-        try {
-          const approved = await fetchApprovedDepositions();
-          approved.forEach((d, i) => {
-            if (d.photo) {
-              privatePhotos.push({ id: `approved-${i}-${d.id}`, src: d.photo, alt: d.name });
+      if (includeContributions) {
+        // Le mode local est strictement un fallback de démonstration. Des données
+        // résiduelles du navigateur ne doivent jamais entrer dans l'expérience de
+        // production dès que Supabase est configuré.
+        if (!isSupabaseConfigured) {
+          const locals = loadLocalContributions().filter((r) => r.photoUrl);
+          locals.forEach((r, i) => {
+            if (r.photoUrl) {
+              privatePhotos.push({ id: `local-${i}-${r.id}`, src: r.photoUrl, alt: r.contributorName });
             }
           });
-        } catch {
-          // Depositions/Screening expose the actionable bridge error to Jenny.
+        }
+
+        // Contributions approuvées : URLs signées du bucket Supabase privé.
+        // A data-bridge failure must not block the curated birthday memories.
+        if (isSupabaseConfigured) {
+          try {
+            const approved = await fetchApprovedDepositions();
+            approved.forEach((d, i) => {
+              if (d.photo) {
+                privatePhotos.push({ id: `approved-${i}-${d.id}`, src: d.photo, alt: d.name });
+              }
+            });
+          } catch {
+            // Curated launch memories remain available without the remote bridge.
+          }
         }
       }
 
@@ -90,17 +92,21 @@ function useMemories(): OrbitItem[] {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [includeContributions]);
 
   return items;
 }
 
-export default function IntroOrbit() {
+export default function IntroOrbit({
+  includeContributions = true,
+}: {
+  includeContributions?: boolean;
+}) {
   const reduced = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
   const rafRef = useRef<number>(0);
-  const memories = useMemories();
+  const memories = useMemories(includeContributions);
   // Curated launch media are intentionally all represented in the orbit.
   const display = memories;
   const N = Math.max(display.length, 1);

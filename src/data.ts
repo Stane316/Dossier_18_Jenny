@@ -10,7 +10,7 @@ export const COVER_META = [
   { label: "Sujet", value: "Jennifer — dite « Jenny »" },
   { label: "Alias connu", value: "Méminou" },
   { label: "Âge au moment des faits", value: "18 ans, tout juste" },
-  { label: "Statut", value: "Bachelère. Avec la manière." },
+  { label: "Statut", value: "Bachelière. Avec la manière." },
   { label: "Signes particuliers", value: "Franche. Directe. Toujours là pour les autres." },
   { label: "Dernière localisation", value: "Entourée des siens — 13 août" },
 ];

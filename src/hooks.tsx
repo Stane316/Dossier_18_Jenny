@@ -13,6 +13,47 @@ export function useReducedMotion(): boolean {
   return reduced;
 }
 
+/* ── Progression normalisée d'une section dans le viewport ── */
+export function useSectionProgress<T extends HTMLElement>(disabled = false) {
+  const ref = useRef<T | null>(null);
+  const [progress, setProgress] = useState(disabled ? 1 : 0);
+
+  useEffect(() => {
+    if (disabled) {
+      setProgress(1);
+      return;
+    }
+
+    const element = ref.current;
+    if (!element) return;
+
+    let raf = 0;
+    const update = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const rect = element.getBoundingClientRect();
+        const travel = rect.height + window.innerHeight;
+        const next = travel > 0
+          ? Math.min(1, Math.max(0, (window.innerHeight - rect.top) / travel))
+          : 0;
+
+        setProgress((current) => Math.abs(current - next) > 0.001 ? next : current);
+      });
+    };
+
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      cancelAnimationFrame(raf);
+    };
+  }, [disabled]);
+
+  return { ref, progress };
+}
+
 /* ── Révélation au scroll (une seule fois) ── */
 export function useInView<T extends HTMLElement>(threshold = 0.2) {
   const ref = useRef<T | null>(null);

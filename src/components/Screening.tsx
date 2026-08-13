@@ -47,7 +47,13 @@ function publicMemoryRecordings(): PrivateRecording[] {
   });
 }
 
-export default function Screening({ privateMode = false }: { privateMode?: boolean }) {
+export default function Screening({
+  privateMode = false,
+  includeContributions = true,
+}: {
+  privateMode?: boolean;
+  includeContributions?: boolean;
+}) {
   const [activeId, setActiveId] = useState(RECORDINGS[0].id);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
@@ -66,9 +72,9 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
     let cancelled = false;
     const load = async () => {
       const recs: PrivateRecording[] = publicMemoryRecordings();
-      let bridgeFailed = !isSupabaseConfigured;
+      let bridgeFailed = includeContributions && !isSupabaseConfigured;
 
-      if (isSupabaseConfigured) {
+      if (includeContributions && isSupabaseConfigured) {
         try {
           const approved = await fetchApprovedDepositions();
           approved.forEach((d, idx) => {
@@ -107,7 +113,7 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
     return () => {
       cancelled = true;
     };
-  }, [privateMode]);
+  }, [includeContributions, privateMode]);
 
   const hasJennyRecordings = privateMode && Boolean(privateRecordings?.length);
   const recordings = hasJennyRecordings ? privateRecordings! : RECORDINGS;
@@ -172,7 +178,9 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
       <Reveal className="-mt-6 mb-12 max-w-3xl md:-mt-8">
         <p className="font-mono text-[12px] leading-relaxed text-bone/70">
           {privateMode
-            ? "Les films-souvenirs ajoutés dans public/memories sont intégrés automatiquement au prochain build. Les contributions approuvées complètent la projection depuis Supabase via des URLs signées temporaires."
+            ? includeContributions
+              ? "Les films-souvenirs du dossier sont rejoints par les contributions approuvées, révélées ici comme des scènes et non comme de simples fichiers."
+              : "Les films-souvenirs conservés pour toi deviennent des scènes du dossier. Lumière éteinte, son monté : l’archive peut commencer."
             : "Les vidéos jointes au dossier ne sont pas de simples pièces : ce sont des scènes reconstituées. Lumière éteinte, son monté. Le greffe transcrit en direct."}
         </p>
         {privateMode && privateRecordings === null && (
@@ -187,7 +195,7 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
         )}
         {privateMode && privateRecordings && privateRecordings.length > 0 && (
           <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-brass">
-            {privateRecordings.length} film{privateRecordings.length > 1 ? "s" : ""}-souvenir — {privateLoadError ? "archive du dossier" : "archive du dossier et contributions approuvées"}
+            {privateRecordings.length} film{privateRecordings.length > 1 ? "s" : ""}-souvenir — {includeContributions && !privateLoadError ? "archive du dossier et contributions approuvées" : "archive du dossier"}
           </p>
         )}
         {privateMode && privateRecordings?.length === 0 && (
@@ -301,8 +309,10 @@ export default function Screening({ privateMode = false }: { privateMode?: boole
               ))}
             </ol>
             <p className="mt-auto pt-6 font-mono text-[9px] uppercase leading-relaxed tracking-[0.18em] text-fog/70">
-              {hasJennyRecordings
-                ? "Archives public/memories + contributions Supabase approuvées."
+              {privateMode
+                ? hasJennyRecordings
+                  ? "Archive personnelle — lecture réservée à Jenny."
+                  : "Aucun film personnel n’est encore versé à cette projection."
                 : "Bandes de démonstration publiques — ajoutez un fichier vidéo dans public/memories pour le remplacer."}
             </p>
           </aside>

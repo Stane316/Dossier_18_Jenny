@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Cover from "../components/Cover";
 import Report from "../components/Report";
 import Evidence from "../components/Evidence";
-import Depositions from "../components/Depositions";
+import TestimonialsExperience from "../components/TestimonialsExperience";
 import Screening from "../components/Screening";
 import Verdict from "../components/Verdict";
 import Archive from "../components/Archive";
@@ -55,12 +55,12 @@ export default function JennyExperience() {
           Fermer la session
         </button>
       </div>
-      <IntroOrbit />
+      <IntroOrbit includeContributions={false} />
       <Cover privateMode />
       <Report privateMode />
       <Evidence />
-      <Depositions privateMode />
-      <Screening privateMode />
+      <TestimonialsExperience />
+      <Screening privateMode includeContributions={false} />
       <Verdict />
       <Archive />
     </>
